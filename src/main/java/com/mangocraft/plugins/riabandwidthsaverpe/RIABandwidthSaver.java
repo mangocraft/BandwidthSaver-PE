@@ -243,13 +243,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 4. 需要复杂逻辑判断的包 (Block Action / Change)
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_ACTION) {
-                if (!shouldAllowBlockActionPacket(event, uuid)) {
-                    event.setCancelled(true);
-                    handleCancelledPacketWithSize(event, uuid, packetSize);
-                }
-                return;
+                // BLOCK_ACTION: 全部通过，不进行拦截 - 取消拦截
+                return; // Don't cancel, allow through
             }
 
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_CHANGE) {
