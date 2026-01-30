@@ -168,7 +168,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_ATTRIBUTES ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT || // 🔥 必杀技1: 光照更新 - 节省大量流量
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR) { // 🛡️ 必杀技3: Boss栏 - AFK玩家不需要看到公告
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR || // 🛡️ 必杀技3: Boss栏 - AFK玩家不需要看到公告
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { // 🚀 必杀技2: 实体传送 - 全部拦截ENTITY_TELEPORT
                 
                 event.setCancelled(true);
                 handleCancelledPacketWithSize(event, uuid, packetSize);
@@ -192,7 +193,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ROTATION || // 原代码的 ENTITY_LOOK
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT || // 🚀 必杀技2: 实体传送 - 拦截ENTITY_TELEPORT
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY) {
                 
                 if (RANDOM.nextDouble() < 0.02) { // 2% 放行
