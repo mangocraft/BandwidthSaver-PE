@@ -28,10 +28,6 @@ jobs:
         run: mvn -B package -T 1.5C --file pom.xml
       - uses: Kir-Antipov/mc-publish@v3.3
         with:
-          modrinth-id: gzG5z2gD
-          modrinth-featured: true
-          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-
           github-discussion: Announcements
           github-token: ${{ secrets.GITHUB_TOKEN }}
           github-draft: false
@@ -45,6 +41,6 @@ jobs:
             >=1.20
           game-version-filter: releases
           java: |
-            17
+            21
           dependencies: |
             essentialsx(optional)
