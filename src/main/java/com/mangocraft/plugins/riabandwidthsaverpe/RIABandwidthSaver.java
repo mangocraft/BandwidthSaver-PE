@@ -455,6 +455,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             bossBarPacket.setColor(color);
             bossBarPacket.setOverlay(overlay);
             
+            // 修复空指针报错：显式设置flags字段
+            bossBarPacket.setFlags(java.util.EnumSet.noneOf(net.kyori.adventure.bossbar.BossBar.Flag.class));
+            
             // 发送BossBar数据包给玩家
             PacketEvents.getAPI().getPlayerManager().sendPacket(player, bossBarPacket);
         } catch (Exception e) {
@@ -493,6 +496,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     ecoBarUuid,
                     WrapperPlayServerBossBar.Action.REMOVE
                 );
+                
+                // 修复空指针报错：显式设置flags字段
+                removeBossBarPacket.setFlags(java.util.EnumSet.noneOf(net.kyori.adventure.bossbar.BossBar.Flag.class));
                 
                 // 发送移除BossBar数据包给玩家
                 PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
