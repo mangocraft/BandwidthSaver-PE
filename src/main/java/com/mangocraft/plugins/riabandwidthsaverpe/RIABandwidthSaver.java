@@ -392,6 +392,51 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             player.sendMessage(message);
         }
         
+        // 强制刷新玩家周围的实体位置，修复"幽灵实体"Bug
+        // 使用Folia兼容的区域调度器
+        player.getScheduler().run(this, task -> {
+            try {
+                Location playerLocation = player.getLocation();
+                int viewDistance = 48; // 48格范围内的实体
+                
+                // 获取玩家周围的实体
+                List<Player> nearbyPlayers = player.getWorld().getPlayers().stream()
+                    .filter(p -> !p.equals(player)) // 排除自己
+                    .filter(p -> p.getLocation().distance(playerLocation) <= viewDistance)
+                    .collect(Collectors.toList());
+                
+                // 获取附近的非玩家实体
+                List<org.bukkit.entity.Entity> nearbyEntities = player.getWorld().getNearbyEntities(
+                    playerLocation, viewDistance, viewDistance, viewDistance).stream()
+                    .filter(e -> !(e instanceof Player)) // 排除非玩家实体
+                    .filter(e -> e.getType() != org.bukkit.entity.EntityType.ARMOR_STAND) // 排除盔甲架
+                    .filter(e -> e.getType() != org.bukkit.entity.EntityType.ITEM_FRAME) // 排除物品展示框
+                    .filter(e -> e.getType() != org.bukkit.entity.EntityType.PAINTING) // 排除画
+                    .collect(Collectors.toList());
+                
+                // 隐藏并重新显示附近的玩家实体
+                for (Player nearbyPlayer : nearbyPlayers) {
+                    player.hidePlayer(this, nearbyPlayer);
+                    player.showPlayer(this, nearbyPlayer);
+                }
+                
+                // 隐藏并重新显示附近的非玩家实体
+                for (org.bukkit.entity.Entity entity : nearbyEntities) {
+                    if (entity.isValid()) {
+                        // 使用PacketEvents的hide/show方法来强制刷新实体位置
+                        // 通过取消和重新发送实体位置包来实现刷新
+                        // 由于API限制，我们使用Bukkit的hide/show机制
+                        player.hideEntity(this, entity);
+                        player.showEntity(this, entity);
+                    }
+                }
+                
+                getLogger().info("Player " + player.getName() + " entity refresh completed after exiting AFK mode");
+            } catch (Exception e) {
+                getLogger().warning("Failed to refresh entities for player " + player.getName() + ": " + e.getMessage());
+            }
+        }, null);
+        
         // Log AFK exit to console
         getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") exited AFK mode");
     }
