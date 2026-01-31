@@ -11,6 +11,9 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockAction;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBossBar;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import io.netty.buffer.ByteBuf;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -78,6 +81,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private boolean calcAllPackets = false;
     private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
     private io.papermc.paper.threadedregions.scheduler.ScheduledTask afkCheckTask = null;
+
+    // ECO模式BossBar相关数据结构
+    private final Map<UUID, UUID> ECO_BAR_UUIDS = new ConcurrentHashMap<>(); // 存储 <玩家UUID, ECO条的UUID>
 
     private com.github.retrooper.packetevents.PacketEventsAPI packetEventsAPI;
 
@@ -165,12 +171,38 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_ATTRIBUTES ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT || // 🔥 必杀技1: 光照更新 - 节省大量流量
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR || // 🛡️ 必杀技3: Boss栏 - AFK玩家不需要看到公告
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { // 🚀 必杀技2: 实体传送 - 全部拦截ENTITY_TELEPORT
                 
                 event.setCancelled(true);
                 handleCancelledPacketWithSize(event, uuid, packetSize);
                 return;
+            }
+            
+            // 特殊处理：BOSS_BAR - 实现白名单机制
+            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR) { // 🛡️ 必杀技3: Boss栏 - 但现在使用白名单机制
+                try {
+                    // 解析包获取 packetUuid
+                    WrapperPlayServerBossBar bossBarWrapper = new WrapperPlayServerBossBar(event);
+                    UUID packetUuid = bossBarWrapper.getUUID();
+                    
+                    // 从 ECO_BAR_UUIDS 获取该玩家允许的 allowedUuid
+                    UUID allowedUuid = ECO_BAR_UUIDS.get(uuid);
+                    
+                    // 如果 packetUuid.equals(allowedUuid) -> 放行 (return)
+                    if (allowedUuid != null && packetUuid.equals(allowedUuid)) {
+                        return; // 允许ECO提示条通过
+                    }
+                    
+                    // 否则（说明是 TPS 条或其他条）-> 拦截 (event.setCancelled(true)) 并记录统计
+                    event.setCancelled(true);
+                    handleCancelledPacketWithSize(event, uuid, packetSize);
+                    return;
+                } catch (Exception e) {
+                    // 如果解析失败，按照原来的逻辑处理
+                    event.setCancelled(true);
+                    handleCancelledPacketWithSize(event, uuid, packetSize);
+                    return;
+                }
             }
 
             // 2. 特殊处理：受伤动画 (EntityStatus)
@@ -377,6 +409,34 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }
         AFK_PLAYERS.add(player.getUniqueId());
         
+        // 创建ECO模式BossBar提示
+        UUID playerUuid = player.getUniqueId();
+        UUID ecoBarUuid = UUID.randomUUID(); // 生成随机UUID作为ECO条的ID
+        ECO_BAR_UUIDS.put(playerUuid, ecoBarUuid);
+
+        // 使用PacketEvents发送BossBar数据包
+        try {
+            // 构建BossBar标题组件
+            Component title = MiniMessage.miniMessage().deserialize("<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>");
+            
+            // 创建ADD类型的BossBar包
+            WrapperPlayServerBossBar bossBarPacket = new WrapperPlayServerBossBar(
+                ecoBarUuid,
+                WrapperPlayServerBossBar.Action.ADD
+            );
+            
+            // 设置BossBar属性
+            bossBarPacket.setTitle(title);
+            bossBarPacket.setHealth(1.0f); // 进度：1.0 (满血)
+            bossBarPacket.setColor(net.kyori.adventure.bossbar.BossBar.Color.YELLOW); // 颜色：黄色
+            bossBarPacket.setOverlay(net.kyori.adventure.bossbar.BossBar.Overlay.PROGRESS); // 样式：PROGRESS
+            
+            // 发送BossBar数据包给玩家
+            PacketEvents.getAPI().getPlayerManager().sendPacket(player, bossBarPacket);
+        } catch (Exception e) {
+            getLogger().warning("Failed to send ECO BossBar to player " + player.getName() + ": " + e.getMessage());
+        }
+
         // Log AFK entry to console
         getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") entered AFK mode");
     }
@@ -390,6 +450,27 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         String message = getConfig().getString("message.playerEcoDisable", "");
         if(!message.isEmpty()){
             player.sendMessage(message);
+        }
+        
+        // 移除ECO模式BossBar提示
+        UUID playerUuid = player.getUniqueId();
+        UUID ecoBarUuid = ECO_BAR_UUIDS.get(playerUuid);
+        if (ecoBarUuid != null) {
+            try {
+                // 创建REMOVE类型的BossBar包
+                WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(
+                    ecoBarUuid,
+                    WrapperPlayServerBossBar.Action.REMOVE
+                );
+                
+                // 发送移除BossBar数据包给玩家
+                PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
+                
+                // 从映射中移除UUID
+                ECO_BAR_UUIDS.remove(playerUuid);
+            } catch (Exception e) {
+                getLogger().warning("Failed to remove ECO BossBar for player " + player.getName() + ": " + e.getMessage());
+            }
         }
         
         // 强制刷新玩家周围的实体位置，修复"幽灵实体"Bug
