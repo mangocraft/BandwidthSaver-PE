@@ -62,7 +62,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final ThreadLocalRandom RANDOM = ThreadLocalRandom.current();
     private boolean calcAllPackets = false;
     private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
-    private io.papermc.paper.threadedregions.scheduler.ScheduledTask afkCheckTask = null;
+
 
     // ECO模式BossBar相关数据结构
     private final Map<UUID, UUID> ECO_BAR_UUIDS = new ConcurrentHashMap<>(); // 存储 <玩家UUID, ECO条的UUID>
