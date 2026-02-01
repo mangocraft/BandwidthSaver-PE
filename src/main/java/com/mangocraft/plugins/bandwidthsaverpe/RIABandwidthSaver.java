@@ -49,25 +49,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private long afkThresholdMs = 300000; // AFK阈值：5分钟（毫秒），可从配置文件修改
     private static final long MIN_HEAD_MOVEMENT_INTERVAL_MS = 1000; // 最小头部移动检测间隔：1秒
     
-    // 实体追踪数据结构，用于智能过滤
-    private final Map<Integer, Long> LAST_ENTITY_UPDATE = new ConcurrentHashMap<>(); // 记录实体最后更新时间
-    private final Map<Integer, Double> LAST_ENTITY_DISTANCE = new ConcurrentHashMap<>(); // 记录实体最后距离
-    private final Map<Integer, Integer> ENTITY_UPDATE_COUNT = new ConcurrentHashMap<>(); // 记录实体更新频率
-    
-    // 机械装置活动跟踪数据结构
-    private final Map<UUID, Map<String, Long>> MECHANICAL_DEVICE_ACTIVITY = new ConcurrentHashMap<>(); // 记录玩家附近机械装置活动
-    private final Map<String, Long> LAST_MECHANICAL_ACTIVITY = new ConcurrentHashMap<>(); // 记录全局机械装置最后活动时间
-    private static final long MECHANICAL_ACTIVITY_WINDOW_MS = 5000; // 机械装置活动时间窗口：5秒
-    private static final double MECHANICAL_ACTIVITY_SENSITIVITY = 0.7; // 机械装置活动敏感度
-    
-    // 实体密度和生命周期跟踪数据结构 - 为了性能优化，减少对高频实体的复杂处理
-    private final Map<String, Integer> REGION_ENTITY_COUNT = new ConcurrentHashMap<>(); // 记录区域实体数量
-    private static final int ENTITY_DENSITY_THRESHOLD = 20; // 区域实体密度阈值
-    private static final long DENSITY_CHECK_WINDOW_MS = 5000; // 密度检查时间窗口：5秒
-    
-    // 调试日志限流相关数据结构
-    private final Map<String, Long> DEBUG_LOG_TIMERS = new ConcurrentHashMap<>(); // 记录各类调试日志的最后记录时间
-    private static final long DEBUG_LOG_INTERVAL_MS = 5000; // 调试日志最小间隔时间：5秒
+
     
     // 高频实体识别数据结构 - 简化以减少计算开销
     private static final int HIGH_FREQUENCY_ENTITY_THRESHOLD = 10; // 高频实体活动阈值
