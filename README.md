@@ -13,6 +13,8 @@ BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。�
 * **Modern Framework:** Switched from ProtocolLib to **PacketEvents** for superior stability. (前置从 ProtocolLib 改为 PacketEvents，更稳定兼容)
 * **Refined Logic:** Optimized filtering algorithms for higher precision. (优化过滤算法，更准确高效)
 * **Folia Support:** Native compatibility with Folia. (增加对 Folia 服务器的支持)
+* **AFK Fishing Fix:** Added detection and handling for AFK fishing machines. (增加对自动钓鱼机的检测和处理)
+* **Manual AFK Mode:** Added `/afk` command for manual AFK mode that persists regardless of player movement. (新增/afk命令，提供手动AFK模式，不受玩家移动影响)
 
 ---
 
@@ -32,6 +34,7 @@ BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。�
 * **Perspective-Based:** Monitors camera rotation (Default: 300s). 基于视角移动检测（默认 300 秒）。
 * **Auto-Exit:** Automatically restores traffic flow upon taking damage or using teleport commands (`/tp`, `/spawn`, `/home`, etc.). 受到攻击或使用传送命令时自动退出 AFK 模式。
 * **Automation Friendly:** Compatible with AFK pools and auto-clickers. 支持自动攻击和 AFK 池。
+* **Manual AFK Mode:** Players can use `/afk` command to enter manual AFK mode that persists regardless of player movement. Use `/afk` again or rejoin the game to exit. 手动AFK模式：玩家可使用/afk命令进入手动AFK模式，不受玩家移动影响。再次使用/afk或重新加入游戏可退出。
 
 ### 3. Packet Filtering | 数据包过滤详情
 * **Cancelled (100% Suppression) | 取消发送:**
@@ -41,6 +44,9 @@ BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。�
   * **2% Pass Rate:** Entity movement, Position, Velocity, Experience orbs. (实体移动/位置/速度、经验球)
   * **5% Pass Rate:** Entity metadata. (实体元数据)
   * **20% Pass Rate:** Head orientation. (实体头部朝向)
+* **Special Handling for AFK Fishing | 自动钓鱼机特殊处理:**
+  * When a player holds a fishing rod, certain packets (sound effects, entity velocity/movement) are allowed to pass through to support fishing activities.
+  * 当玩家手持钓鱼竿时，某些数据包（声音效果、实体速度/移动）会被允许通过，以支持钓鱼活动。
 
 ---
 
@@ -48,21 +54,22 @@ BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。�
 
 | Command | Description |
 | :--- | :--- |
-| `/riabandwidthsaver` | View bandwidth saving stats (查看流量节省统计) |
-| `/riabandwidthsaver unfiltered` | View raw consumption (查看实际消耗统计) |
-| `/riabandwidthsaver reload` | Reload configuration (重载配置) |
+| `/bandwidthsaver` | View bandwidth saving stats (查看流量节省统计) |
+| `/bandwidthsaver unfiltered` | View raw consumption (查看实际消耗统计) |
+| `/bandwidthsaver reload` | Reload configuration (重载配置) |
+| `/afk` | Toggle manual AFK mode (切换手动AFK模式) |
 
 | Permission | Description |
 | :--- | :--- |
-| `riabandwidthsaver.bypass` | Bypass AFK detection (绕过 AFK 检测) |
-| `riabandwidthsaver.admin` | Access admin commands (管理员权限) |
+| `bandwidthsaver.bypass` | Bypass AFK detection (绕过 AFK 检测) |
+| `bandwidthsaver.admin` | Access admin commands (管理员权限) |
 
 ---
 
 ## Configuration | 配置文件
 
 ```yaml
-# Calculate all packets (required for /riabandwidthsaver unfiltered)
+# Calculate all packets (required for /bandwidthsaver unfiltered)
 calcAllPackets: true
 
 # Dynamically modify player view distance when AFK

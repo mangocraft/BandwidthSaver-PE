@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.mangocraft.plugins</groupId>
-	<artifactId>RIABandwidthSaver-PE</artifactId>
+	<artifactId>BandwidthSaver-PE</artifactId>
 	<version>2.3.8</version>
 	<packaging>jar</packaging>
 
-    <name>RIABandwidthSaver-PE</name>
+    <name>BandwidthSaver-PE</name>
     <developers>
         <developer>
             <name>Mangocraft</name>

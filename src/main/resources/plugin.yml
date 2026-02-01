@@ -1,20 +1,23 @@
-name: RIABandwidthSaver-PE
+name: BandwidthSaver-PE
 version: '${project.version}'
-main: com.mangocraft.plugins.riabandwidthsaverpe.RIABandwidthSaver
+main: com.mangocraft.plugins.bandwidthsaverpe.RIABandwidthSaver
 api-version: '1.21'
 folia-supported: true
 author: Mangocraft
 depend:
   - packetevents
 permissions:
-  riabandwidthsaver.bypass:
+  bandwidthsaver.bypass:
     description: Player will not enter AFK mode
     default: false
-  riabandwidthsaver.admin:
+  bandwidthsaver.admin:
     description: Allows access to admin commands
     default: op
 commands:
-  riabandwidthsaver:
-    usage: /riabandwidthsaver
-    permission: riabandwidthsaver.admin
+  bandwidthsaver:
+    usage: /bandwidthsaver
+    permission: bandwidthsaver.admin
     permission-message: You don't have permission to use this command! <permission>
+  afk:
+    usage: /afk
+    description: Toggle hardcore AFK mode

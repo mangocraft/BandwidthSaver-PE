@@ -1,4 +1,4 @@
-package com.mangocraft.plugins.riabandwidthsaverpe;
+package com.mangocraft.plugins.bandwidthsaverpe;
 
 import org.jetbrains.annotations.NotNull;
 

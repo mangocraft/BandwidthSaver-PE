@@ -1,4 +1,4 @@
-package com.mangocraft.plugins.riabandwidthsaverpe;
+package com.mangocraft.plugins.bandwidthsaverpe;
 
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerAbstract;
@@ -84,6 +84,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     // ECO模式BossBar相关数据结构
     private final Map<UUID, UUID> ECO_BAR_UUIDS = new ConcurrentHashMap<>(); // 存储 <玩家UUID, ECO条的UUID>
+    
+    // 硬核AFK模式相关数据结构
+    private final Set<UUID> HARDCORE_AFK_PLAYERS = java.util.concurrent.ConcurrentHashMap.newKeySet(); // 存储处于硬核AFK模式的玩家
+    
+    // Folia玩家专用任务相关数据结构
+    private final Map<UUID, io.papermc.paper.threadedregions.scheduler.ScheduledTask> PLAYER_TASKS = new ConcurrentHashMap<>(); // 存储每个玩家的专用任务
+    
+    // 钓鱼检测相关数据结构
+    private final Map<UUID, Boolean> IS_FISHING_CACHE = new ConcurrentHashMap<>(); // 存储玩家是否在钓鱼的状态
 
     private com.github.retrooper.packetevents.PacketEventsAPI packetEventsAPI;
 
@@ -107,8 +116,10 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         
         reloadConfig();
         
-        // Start AFK check task
-        startAfkCheckTask();
+        // 为现有在线玩家创建专用任务
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            schedulePlayerTask(player);
+        }
     }
     
     private class BandwidthSaverListener extends PacketListenerAbstract {
@@ -150,11 +161,26 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
             
+            // 检查玩家是否在钓鱼，如果是，则对某些数据包放行
+            boolean isFishing = IS_FISHING_CACHE.getOrDefault(uuid, false);
+            
             // READ PACKET SIZE IN MAIN THREAD BEFORE CANCELLATION - CRITICAL FOR BYTEBUF LIFECYCLE
             long packetSize = getPacketSizeFromEvent(event); // Read in main thread before cancellation
             
             // --- ✅ 修正开始：使用 PacketType 枚举对比 ---
             com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon type = event.getPacketType();
+
+            // 如果玩家在钓鱼，对特定数据包放行
+            if (isFishing) {
+                if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SOUND_EFFECT ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
+                    // 对钓鱼玩家放行声音效果和鱼漂动画相关数据包
+                    return; // 不取消数据包，让其通过
+                }
+            }
 
             // 1. 完全取消的数据包 (直接列出 PacketType)
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ANIMATION ||
@@ -292,45 +318,90 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         }
     }
 
-    private void startAfkCheckTask() {
-        // 使用定时任务检查玩家AFK状态
-        afkCheckTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(this, task -> {
-            long currentTime = System.currentTimeMillis();
-            
-            // 检查所有在线玩家的AFK状态
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                UUID playerId = player.getUniqueId();
+    /**
+     * 为指定玩家调度专用任务
+     * @param player 玩家
+     */
+    private void schedulePlayerTask(Player player) {
+        UUID playerId = player.getUniqueId();
+        
+        // 如果已有任务，先取消
+        if (PLAYER_TASKS.containsKey(playerId)) {
+            PLAYER_TASKS.get(playerId).cancel();
+        }
+        
+        // 创建针对单个玩家的专用任务
+        io.papermc.paper.threadedregions.scheduler.ScheduledTask task = player.getScheduler().runAtFixedRate(
+            this,
+            scheduledTask -> {
+                // 确保玩家仍在线
+                if (!player.isOnline()) {
+                    // 玩家离线，取消任务
+                    scheduledTask.cancel();
+                    return;
+                }
+                
+                UUID uuid = player.getUniqueId();
                 
                 // 检查玩家是否有绕过权限
-                if (player.hasPermission("riabandwidthsaver.bypass")) {
+                if (player.hasPermission("bandwidthsaver.bypass")) {
                     // 如果玩家有绕过权限且处于AFK状态，则退出AFK
-                    if (AFK_PLAYERS.contains(playerId)) {
+                    if (AFK_PLAYERS.contains(uuid)) {
                         playerEcoDisable(player);
                     }
-                    continue; // 跳过对该玩家的AFK检查
+                    return; // 跳过对该玩家的AFK检查
+                }
+                
+                // 检查是否为手动AFK模式
+                if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
+                    // 手动AFK模式下，强制保持AFK状态
+                    if (!AFK_PLAYERS.contains(uuid)) {
+                        playerEcoEnable(player);
+                    }
+                    return; // 跳过常规AFK检查
                 }
                 
                 // 检查玩家是否不在AFK状态且应该进入AFK状态
-                if (!AFK_PLAYERS.contains(playerId)) {
-                    Long lastHeadMovementTime = LAST_HEAD_MOVEMENT_TIME.get(playerId);
+                if (!AFK_PLAYERS.contains(uuid)) {
+                    Long lastHeadMovementTime = LAST_HEAD_MOVEMENT_TIME.get(uuid);
                     
                     if (lastHeadMovementTime != null) {
+                        long currentTime = System.currentTimeMillis();
                         long timeSinceLastHeadMovement = currentTime - lastHeadMovementTime;
                         
                         // 如果头部在一段时间内没有显著移动，则进入AFK状态
                         if (timeSinceLastHeadMovement >= afkThresholdMs) {
                             playerEcoEnable(player);
-                            ENTER_AFK_TIME.put(playerId, currentTime); // 记录进入AFK的时间
+                            ENTER_AFK_TIME.put(uuid, currentTime); // 记录进入AFK的时间
                         }
                     }
                 }
-            }
-        }, 20, 20); // 每秒检查一次 (20 ticks = 1 second)
+                
+                // 更新钓鱼状态缓存
+                updateFishingStatus(player);
+            },
+            null,
+            20L,  // 初始延迟 1 秒
+            20L   // 每秒执行一次 (20 ticks)
+        );
         
-        // 初始化所有在线玩家的视角信息
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            initializePlayerHeadTracking(player);
-        }
+        // 存储任务引用以便后续取消
+        PLAYER_TASKS.put(playerId, task);
+    }
+    
+    /**
+     * 更新玩家的钓鱼状态
+     * @param player 玩家
+     */
+    private void updateFishingStatus(Player player) {
+        UUID playerId = player.getUniqueId();
+        
+        // 检查玩家主手或副手是否持有钓鱼竿
+        boolean isHoldingFishingRod = player.getInventory().getItemInMainHand().getType() == org.bukkit.Material.FISHING_ROD ||
+                                     player.getInventory().getItemInOffHand().getType() == org.bukkit.Material.FISHING_ROD;
+        
+        // 更新钓鱼状态缓存
+        IS_FISHING_CACHE.put(playerId, isHoldingFishingRod);
     }
     
     /**
@@ -564,11 +635,24 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
         
         // 检查玩家是否有绕过权限
-        if (player.hasPermission("riabandwidthsaver.bypass")) {
+        if (player.hasPermission("bandwidthsaver.bypass")) {
             // 如果玩家有绕过权限且处于AFK状态，则退出AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
             }
+            return; // 不进行后续AFK检测
+        }
+        
+        // 检查是否为硬核AFK模式
+        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+            // 在硬核AFK模式下，不响应视角移动来退出AFK
+            // 仅更新视角信息，但不退出AFK状态
+            float currentYaw = player.getLocation().getYaw();
+            float currentPitch = player.getLocation().getPitch();
+            
+            LAST_YAW.put(playerId, currentYaw);
+            LAST_PITCH.put(playerId, currentPitch);
+            
             return; // 不进行后续AFK检测
         }
         
@@ -591,8 +675,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 LAST_YAW.put(playerId, currentYaw);
                 LAST_PITCH.put(playerId, currentPitch);
                 
-                // 检查是否需要退出AFK
-                if (AFK_PLAYERS.contains(playerId)) {
+                // 检查是否需要退出AFK（但不包括硬核AFK模式）
+                if (AFK_PLAYERS.contains(playerId) && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
                     // 玩家有显著的头部移动，退出AFK
                     playerEcoDisable(player);
                 }
@@ -618,12 +702,18 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
         
         // Check if player has bypass permission
-        if (player.hasPermission("riabandwidthsaver.bypass")) {
+        if (player.hasPermission("bandwidthsaver.bypass")) {
             // If player has bypass permission and is in AFK, exit AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
             }
             return; // Don't process AFK logic for bypass players
+        }
+        
+        // 检查是否为硬核AFK模式
+        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+            // 在硬核AFK模式下，交互不会导致退出AFK
+            return; // 不处理AFK逻辑
         }
         
         // Interactions no longer cause AFK exit - only head movements affect AFK status
@@ -636,7 +726,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
         
         // Check if player has bypass permission
-        if (player.hasPermission("riabandwidthsaver.bypass")) {
+        if (player.hasPermission("bandwidthsaver.bypass")) {
             // If player has bypass permission and is in AFK, exit AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
@@ -644,8 +734,14 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             return; // Don't process AFK logic for bypass players
         }
         
+        // 检查是否为硬核AFK模式
+        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+            // 在硬核AFK模式下，聊天不会导致退出AFK
+            return; // 不处理AFK逻辑
+        }
+        
         // If player is in AFK, chatting might indicate they're active again
-        if (AFK_PLAYERS.contains(playerId)) {
+        if (AFK_PLAYERS.contains(playerId) && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
             // Chat indicates player is active, exit AFK
             playerEcoDisable(player);
         }
@@ -659,12 +755,18 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
         
         // Check if player has bypass permission
-        if (player.hasPermission("riabandwidthsaver.bypass")) {
+        if (player.hasPermission("bandwidthsaver.bypass")) {
             // If player has bypass permission and is in AFK, exit AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
             }
             return; // Don't process AFK logic for bypass players
+        }
+        
+        // 检查是否为硬核AFK模式
+        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+            // 在硬核AFK模式下，命令不会导致退出AFK
+            return; // 不处理AFK逻辑
         }
         
         String command = event.getMessage().toLowerCase(); // Includes the '/' and arguments
@@ -686,8 +788,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             }
         }
         
-        // If player is in AFK and used a teleport command, exit AFK
-        if (AFK_PLAYERS.contains(playerId) && isTeleportCommand) {
+        // If player is in AFK and used a teleport command, exit AFK (but not in hardcore AFK mode)
+        if (AFK_PLAYERS.contains(playerId) && isTeleportCommand && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
             playerEcoDisable(player);
         }
         
@@ -700,19 +802,44 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        
         initializePlayerHeadTracking(player);
+        
+        // 如果玩家在手动AFK模式下重新加入游戏，则自动退出手动AFK模式
+        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+            HARDCORE_AFK_PLAYERS.remove(playerId); // 移除手动AFK状态
+            if (AFK_PLAYERS.contains(playerId)) {
+                playerEcoDisable(player); // 如果在AFK状态，也退出AFK
+            }
+            // 不要自动重新启用AFK状态
+        }
+        
+        // 为新加入的玩家调度专用任务
+        schedulePlayerTask(player);
     }
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        playerEcoDisable(event.getPlayer());
-        PLAYER_PKT_SAVED_STATS.remove(event.getPlayer().getUniqueId());
-        UNFILTERED_PLAYER_PKT_SAVED_STATS.remove(event.getPlayer().getUniqueId());
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        
+        playerEcoDisable(player);
+        PLAYER_PKT_SAVED_STATS.remove(playerId);
+        UNFILTERED_PLAYER_PKT_SAVED_STATS.remove(playerId);
         // Clean up perspective tracking data
-        LAST_YAW.remove(event.getPlayer().getUniqueId());
-        LAST_PITCH.remove(event.getPlayer().getUniqueId());
-        LAST_HEAD_MOVEMENT_TIME.remove(event.getPlayer().getUniqueId());
-        ENTER_AFK_TIME.remove(event.getPlayer().getUniqueId());
+        LAST_YAW.remove(playerId);
+        LAST_PITCH.remove(playerId);
+        LAST_HEAD_MOVEMENT_TIME.remove(playerId);
+        ENTER_AFK_TIME.remove(playerId);
+        IS_FISHING_CACHE.remove(playerId); // 清除钓鱼状态缓存
+        HARDCORE_AFK_PLAYERS.remove(playerId); // 清除手动AFK状态
+        
+        // 取消玩家的专用任务
+        if (PLAYER_TASKS.containsKey(playerId)) {
+            PLAYER_TASKS.get(playerId).cancel();
+            PLAYER_TASKS.remove(playerId);
+        }
     }
 
 
@@ -732,7 +859,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             UUID playerId = player.getUniqueId();
             
             // 检查玩家是否有绕过权限
-            if (player.hasPermission("riabandwidthsaver.bypass")) {
+            if (player.hasPermission("bandwidthsaver.bypass")) {
                 // 如果玩家有绕过权限且处于AFK状态，则退出AFK
                 if (AFK_PLAYERS.contains(playerId)) {
                     playerEcoDisable(player);
@@ -796,9 +923,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         // Plugin shutdown logic
-        if (afkCheckTask != null) {
-            afkCheckTask.cancel();
+        // 取消所有玩家的专用任务
+        for (io.papermc.paper.threadedregions.scheduler.ScheduledTask task : PLAYER_TASKS.values()) {
+            task.cancel();
         }
+        PLAYER_TASKS.clear();
+        
         EXECUTOR_SERVICE.shutdown();
         try {
             if (!EXECUTOR_SERVICE.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -830,47 +960,80 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
-        // Check if sender has admin permission for all commands
-        if (!sender.hasPermission("riabandwidthsaver.admin")) {
-            sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+        // 检查是否是afk命令
+        if (command.getName().equalsIgnoreCase("afk")) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(ChatColor.RED + "此命令只能由玩家执行！");
+                return true;
+            }
+            
+            Player player = (Player) sender;
+            UUID playerId = player.getUniqueId();
+            
+            if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+                // 退出硬核AFK模式
+                HARDCORE_AFK_PLAYERS.remove(playerId);
+                if (AFK_PLAYERS.contains(playerId)) {
+                    playerEcoDisable(player);
+                }
+                player.sendMessage(ChatColor.GREEN + "您已退出手动AFK模式！");
+            } else {
+                // 进入硬核AFK模式
+                HARDCORE_AFK_PLAYERS.add(playerId);
+                if (!AFK_PLAYERS.contains(playerId)) {
+                    playerEcoEnable(player);
+                }
+                player.sendMessage(ChatColor.YELLOW + "您已进入手动AFK模式！再次输入/afk退出此模式。");
+            }
             return true;
         }
         
-        if (args.length == 0) {
-            sender.sendMessage(ChatColor.GREEN + "🍃 ECO 节能模式 - 统计信息：");
-            long pktCancelled = PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktCounter().longValue()).sum();
-            long pktSizeSaved = PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktSize().longValue()).sum();
-            sender.sendMessage(ChatColor.YELLOW + "共减少发送数据包：" + ChatColor.AQUA + pktCancelled + " 个");
-            sender.sendMessage(ChatColor.YELLOW + "共减少发送数据包：" + ChatColor.AQUA + humanReadableByteCount(pktSizeSaved, false) + " （不包含视距优化的增益数据）");
-            Map<Object, PacketInfo> sortedPktMap = new LinkedHashMap<>();
-            Map<UUID, PacketInfo> sortedPlayerMap = new LinkedHashMap<>();
-            PKT_TYPE_STATS.entrySet().stream().sorted(Map.Entry.<Object, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPktMap.put(e.getKey(), e.getValue()));
-            PLAYER_PKT_SAVED_STATS.entrySet().stream().sorted(Map.Entry.<UUID, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPlayerMap.put(e.getKey(), e.getValue()));
-            sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型节约 TOP 15 --");
-            sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
-            sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量节约 TOP 5 --");
-            sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> sender.sendMessage(ChatColor.GRAY + Bukkit.getOfflinePlayer(entry.getKey()).getName() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
+        // 检查是否是bandwidthsaver命令
+        if (command.getName().equalsIgnoreCase("bandwidthsaver")) {
+            // Check if sender has admin permission for all commands
+            if (!sender.hasPermission("bandwidthsaver.admin")) {
+                sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+                return true;
+            }
+            
+            if (args.length == 0) {
+                sender.sendMessage(ChatColor.GREEN + "🍃 ECO 节能模式 - 统计信息：");
+                long pktCancelled = PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktCounter().longValue()).sum();
+                long pktSizeSaved = PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktSize().longValue()).sum();
+                sender.sendMessage(ChatColor.YELLOW + "共减少发送数据包：" + ChatColor.AQUA + pktCancelled + " 个");
+                sender.sendMessage(ChatColor.YELLOW + "共减少发送数据包：" + ChatColor.AQUA + humanReadableByteCount(pktSizeSaved, false) + " （不包含视距优化的增益数据）");
+                Map<Object, PacketInfo> sortedPktMap = new LinkedHashMap<>();
+                Map<UUID, PacketInfo> sortedPlayerMap = new LinkedHashMap<>();
+                PKT_TYPE_STATS.entrySet().stream().sorted(Map.Entry.<Object, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPktMap.put(e.getKey(), e.getValue()));
+                PLAYER_PKT_SAVED_STATS.entrySet().stream().sorted(Map.Entry.<UUID, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPlayerMap.put(e.getKey(), e.getValue()));
+                sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型节约 TOP 15 --");
+                sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
+                sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量节约 TOP 5 --");
+                sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> sender.sendMessage(ChatColor.GRAY + Bukkit.getOfflinePlayer(entry.getKey()).getName() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
+            }
+            if (args.length == 1 && args[0].equalsIgnoreCase("unfiltered")) {
+                sender.sendMessage(ChatColor.GREEN + "🍃 UN-ECO - 数据总计 - 统计信息：");
+                long pktSent = UNFILTERED_PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktCounter().longValue()).sum();
+                long pktSize = UNFILTERED_PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktSize().longValue()).sum();
+                sender.sendMessage(ChatColor.YELLOW + "共发送数据包：" + ChatColor.AQUA + pktSent + " 个");
+                sender.sendMessage(ChatColor.YELLOW + "共发送数据包：" + ChatColor.AQUA + humanReadableByteCount(pktSize, false));
+                Map<Object, PacketInfo> sortedPktMap = new LinkedHashMap<>();
+                Map<UUID, PacketInfo> sortedPlayerMap = new LinkedHashMap<>();
+                UNFILTERED_PKT_TYPE_STATS.entrySet().stream().sorted(Map.Entry.<Object, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPktMap.put(e.getKey(), e.getValue()));
+                UNFILTERED_PLAYER_PKT_SAVED_STATS.entrySet().stream().sorted(Map.Entry.<UUID, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPlayerMap.put(e.getKey(), e.getValue()));
+                sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型 TOP 15 --");
+                sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
+                sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量 TOP 5 --");
+                sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> sender.sendMessage(ChatColor.GRAY + Bukkit.getOfflinePlayer(entry.getKey()).getName() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
+            }
+            if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
+                reloadConfig();
+                sender.sendMessage(ChatColor.GREEN + "🍃 ECO - 配置文件已重载");
+            }
+            return true;
         }
-        if (args.length == 1 && args[0].equalsIgnoreCase("unfiltered")) {
-            sender.sendMessage(ChatColor.GREEN + "🍃 UN-ECO - 数据总计 - 统计信息：");
-            long pktSent = UNFILTERED_PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktCounter().longValue()).sum();
-            long pktSize = UNFILTERED_PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktSize().longValue()).sum();
-            sender.sendMessage(ChatColor.YELLOW + "共发送数据包：" + ChatColor.AQUA + pktSent + " 个");
-            sender.sendMessage(ChatColor.YELLOW + "共发送数据包：" + ChatColor.AQUA + humanReadableByteCount(pktSize, false));
-            Map<Object, PacketInfo> sortedPktMap = new LinkedHashMap<>();
-            Map<UUID, PacketInfo> sortedPlayerMap = new LinkedHashMap<>();
-            UNFILTERED_PKT_TYPE_STATS.entrySet().stream().sorted(Map.Entry.<Object, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPktMap.put(e.getKey(), e.getValue()));
-            UNFILTERED_PLAYER_PKT_SAVED_STATS.entrySet().stream().sorted(Map.Entry.<UUID, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPlayerMap.put(e.getKey(), e.getValue()));
-            sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型 TOP 15 --");
-            sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
-            sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量 TOP 5 --");
-            sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> sender.sendMessage(ChatColor.GRAY + Bukkit.getOfflinePlayer(entry.getKey()).getName() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
-        }
-        if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
-            reloadConfig();
-            sender.sendMessage(ChatColor.GREEN + "🍃 ECO - 配置文件已重载");
-        }
-        return true;
+        
+        return false;
     }
 
     public static String humanReadableByteCount(long bytes, boolean si) {
