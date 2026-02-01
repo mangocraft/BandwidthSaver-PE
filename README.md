@@ -1,10 +1,13 @@
-# RIABandwidthSaver-PE
+# BandwidthSaver-PE
 
 ## Overview | 概述
 
-**RIABandwidthSaver-PE** is a high-performance bandwidth throttling plugin built on the **PacketEvents** framework. Developed by the **Mangocraft Code Team**, it is a modernized fork of the legacy [RIABandwidthSaver](https://github.com/Ghost-chu/RIABandwidthSaver) by **Ghost-chu**.
+**BandwidthSaver-PE** is a high-performance bandwidth throttling plugin built on the **PacketEvents** framework. Developed by the **Mangocraft Code Team**, it is a modernized fork of the legacy [RIABandwidthSaver](https://github.com/Ghost-chu/RIABandwidthSaver) by **Ghost-chu**.
 
-RIABandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。由 **Mangocraft Code Team** 基于 Ghost-chu 的旧版插件进行修改优化，旨在玩家处于 AFK 状态期间抑制不必要的数据包和区块发送，缓解服务器带宽压力。
+BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。由 **芒果方块的服务器开发制作组** 基于 Ghost-chu 的旧版插件RIABandwidthSaver进行修改优化，旨在玩家处于 AFK 状态期间抑制不必要的数据包和区块发送，缓解服务器带宽压力。
+![当进入ECO模式时会通过BOSSBAR提醒](https://cdn.modrinth.com/data/cached_images/27b6c74e463f97ef01749fadcc19c192c80c59b3.jpeg)
+![减少数据包展示Limit packet display.](https://cdn.modrinth.com/data/cached_images/262cf137d40a4d17fb47bbbe0c726ffa50bf66d7.png)
+（All text within images can be modified in config.yml. Feel free to translate or customize the content.图片内文字均可在config.yml中修改，可自行翻译或自定义内容）
 
 ### Improvements | 改进点
 * **Modern Framework:** Switched from ProtocolLib to **PacketEvents** for superior stability. (前置从 ProtocolLib 改为 PacketEvents，更稳定兼容)
@@ -74,3 +77,8 @@ debug: false
 message:
   playerEcoEnable: '§a🍃 ECO 节能模式已启用，限制数据传输，可能会看着卡顿，实际正常，不会影响机器运行'
   playerEcoDisable: '§8🍃 ECO 节能模式已停用，数据传输将恢复正常'
+bossbar:
+  eco-enabled-title: "<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>"
+  eco-enabled-health: 1.0
+  eco-enabled-color: "YELLOW" # YELLOW, BLUE, RED, GREEN, PINK, WHITE, PURPLE, or ORANGE
+  eco-enabled-overlay: "PROGRESS" # PROGRESS, NOTCHED_6, NOTCHED_10, NOTCHED_12, or NOTCHED_20
