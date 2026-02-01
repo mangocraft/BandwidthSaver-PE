@@ -6,7 +6,7 @@
 
     <groupId>com.mangocraft.plugins</groupId>
 	<artifactId>BandwidthSaver-PE</artifactId>
-	<version>3.0</version>
+	<version>3.1</version>
 	<packaging>jar</packaging>
 
     <name>BandwidthSaver-PE</name>
