@@ -51,9 +51,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     
 
     
-    // 高频实体识别数据结构 - 简化以减少计算开销
-    private static final int HIGH_FREQUENCY_ENTITY_THRESHOLD = 10; // 高频实体活动阈值
-    private static final long ACTIVITY_WINDOW_MS = 5000; // 活动时间窗口：5秒
+
     
     private final Map<Object, PacketInfo> PKT_TYPE_STATS = new ConcurrentHashMap<>();
     private final Map<UUID, PacketInfo> PLAYER_PKT_SAVED_STATS = new ConcurrentHashMap<>();
