@@ -1,5 +1,5 @@
 # 计算所有数据包（即启用 /riabandwidthsaver unfiltered 的统计信息）
-calcAllPackets: true
+calcAllPackets: false
 modifyPlayerViewDistance: false
 # 视角检测AFK阈值（秒），默认为 300 秒（5分钟）
 afkPerspectiveThresholdSeconds: 300

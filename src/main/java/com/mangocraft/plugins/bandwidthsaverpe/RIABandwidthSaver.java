@@ -169,13 +169,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT || // 注意：Named Sound 和 Entity Sound
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.EXPLOSION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_HEAD_LOOK || // 修正：是 HEAD_LOOK 不是 HEAD_ROTATION
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DAMAGE_EVENT ||     // 1.19.4+
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_LIST_HEADER_AND_FOOTER || // 修正名称
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MAP_DATA ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT || // 光照更新 - 节省大量流量
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { // 实体传送 - 全部拦截ENTITY_TELEPORT
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { // 实体传送 - 全部拦截 ENTITY_TELEPORT
                 
                 event.setCancelled(true);
                 handleCancelledPacketWithSize(event, uuid, packetSize);
@@ -236,9 +235,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 载具移动
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.VEHICLE_MOVE) {
-                if (RANDOM.nextInt(3) > 0) { // 33% 放行
+            // 实体生成 (SPAWN_ENTITY) - 依然保持 50% 拦截来省流量，但不再记录 ID
+            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY) {
+                if (RANDOM.nextInt(2) > 0) { // 50% 放行
                     return;
                 }
                 event.setCancelled(true);
@@ -246,14 +245,10 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 实体生成 (保持可见性)
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY) {
-                if (RANDOM.nextInt(2) > 0) {
-                    return;
-                }
-                event.setCancelled(true);
-                handleCancelledPacketWithSize(event, uuid, packetSize);
-                return;
+            // 实体销毁 (DESTROY_ENTITIES) - 100% 放行！
+            // 解决死掉的生物一直红色的倒在地上不消失的 Bug
+            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DESTROY_ENTITIES) {
+                return; // 绝不拦截，让客户端正常清理尸体
             }
 
             // 头部旋转
@@ -525,7 +520,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     }
 
     public void playerEcoDisable(Player player) {
-        AFK_PLAYERS.remove(player.getUniqueId());
+        UUID playerUuid = player.getUniqueId();
+        AFK_PLAYERS.remove(playerUuid);
         if(getConfig().getBoolean("modifyPlayerViewDistance")) {
             player.setSendViewDistance(-1);
         }
@@ -535,24 +531,23 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             player.sendMessage(message);
         }
         
-        // 移除ECO模式BossBar提示
-        UUID playerUuid = player.getUniqueId();
+        // 移除 ECO 模式 BossBar 提示
         UUID ecoBarUuid = ECO_BAR_UUIDS.get(playerUuid);
         if (ecoBarUuid != null) {
             try {
-                // 创建REMOVE类型的BossBar包
+                // 创建 REMOVE 类型的 BossBar 包
                 WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(
                     ecoBarUuid,
                     WrapperPlayServerBossBar.Action.REMOVE
                 );
                 
-                // 修复空指针报错：显式设置flags字段
+                // 修复空指针报错：显式设置 flags 字段
                 removeBossBarPacket.setFlags(java.util.EnumSet.noneOf(net.kyori.adventure.bossbar.BossBar.Flag.class));
                 
-                // 发送移除BossBar数据包给玩家
+                // 发送移除 BossBar 数据包给玩家
                 PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
                 
-                // 从映射中移除UUID
+                // 从映射中移除 UUID
                 ECO_BAR_UUIDS.remove(playerUuid);
             } catch (Exception e) {
                 getLogger().warning("Failed to remove ECO BossBar for player " + player.getName() + ": " + e.getMessage());
@@ -560,47 +555,38 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         }
         
         // 强制刷新玩家周围的实体位置，修复"幽灵实体"Bug
-        // 使用Folia兼容的区域调度器
         player.getScheduler().run(this, task -> {
             try {
-                Location playerLocation = player.getLocation();
-                int viewDistance = 48; // 48格范围内的实体
+                // ✅ 绝对安全：使用 player.getNearbyEntities 只获取该玩家周边的实体，不会触发 Folia 跨区报错
+                java.util.List<org.bukkit.entity.Entity> nearbyEntities = player.getNearbyEntities(48, 48, 48);
                 
-                // 获取玩家周围的实体
-                List<Player> nearbyPlayers = player.getWorld().getPlayers().stream()
-                    .filter(p -> !p.equals(player)) // 排除自己
-                    .filter(p -> p.getLocation().distance(playerLocation) <= viewDistance)
-                    .collect(Collectors.toList());
-                
-                // 获取附近的非玩家实体
-                List<org.bukkit.entity.Entity> nearbyEntities = player.getWorld().getNearbyEntities(
-                    playerLocation, viewDistance, viewDistance, viewDistance).stream()
-                    .filter(e -> !(e instanceof Player)) // 排除非玩家实体
-                    .filter(e -> e.getType() != org.bukkit.entity.EntityType.ARMOR_STAND) // 排除盔甲架
-                    .filter(e -> e.getType() != org.bukkit.entity.EntityType.ITEM_FRAME) // 排除物品展示框
-                    .filter(e -> e.getType() != org.bukkit.entity.EntityType.PAINTING) // 排除画
-                    .collect(Collectors.toList());
-                
-                // 隐藏并重新显示附近的玩家实体
-                for (Player nearbyPlayer : nearbyPlayers) {
-                    player.hidePlayer(this, nearbyPlayer);
-                    player.showPlayer(this, nearbyPlayer);
-                }
-                
-                // 隐藏并重新显示附近的非玩家实体
                 for (org.bukkit.entity.Entity entity : nearbyEntities) {
                     if (entity.isValid()) {
-                        // 使用PacketEvents的hide/show方法来强制刷新实体位置
-                        // 通过取消和重新发送实体位置包来实现刷新
-                        // 由于API限制，我们使用Bukkit的hide/show机制
-                        player.hideEntity(this, entity);
-                        player.showEntity(this, entity);
+                        // ✅ 新增：绝对不要刷新玩家自己正在乘坐的载具，否则客户端秒崩！
+                        if (player.isInsideVehicle() && entity.equals(player.getVehicle())) {
+                            continue;
+                        }
+                        
+                        if (entity instanceof Player) {
+                            Player nearbyPlayer = (Player) entity;
+                            player.hidePlayer(this, nearbyPlayer);
+                            player.showPlayer(this, nearbyPlayer);
+                        } else {
+                            // ✅ 极其关键：必须刷新怪物和掉落物，否则玩家退出 AFK 后会被隐形怪物攻击！
+                            org.bukkit.entity.EntityType type = entity.getType();
+                            if (type != org.bukkit.entity.EntityType.ARMOR_STAND && 
+                                type != org.bukkit.entity.EntityType.ITEM_FRAME && 
+                                type != org.bukkit.entity.EntityType.PAINTING) {
+                                
+                                player.hideEntity(this, entity);
+                                player.showEntity(this, entity);
+                            }
+                        }
                     }
                 }
-                
                 getLogger().info("Player " + player.getName() + " entity refresh completed after exiting AFK mode");
             } catch (Exception e) {
-                getLogger().warning("Failed to refresh entities for player " + player.getName() + ": " + e.getMessage());
+                getLogger().warning("Failed to refresh entities: " + e.getMessage());
             }
         }, null);
         
@@ -813,7 +799,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         LAST_HEAD_MOVEMENT_TIME.remove(playerId);
         ENTER_AFK_TIME.remove(playerId);
         IS_FISHING_CACHE.remove(playerId); // 清除钓鱼状态缓存
-        HARDCORE_AFK_PLAYERS.remove(playerId); // 清除手动AFK状态
+        HARDCORE_AFK_PLAYERS.remove(playerId); // 清除手动 AFK 状态
         
         // 取消玩家的专用任务
         if (PLAYER_TASKS.containsKey(playerId)) {
