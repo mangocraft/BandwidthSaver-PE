@@ -57,7 +57,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Map<UUID, PacketInfo> PLAYER_PKT_SAVED_STATS = new ConcurrentHashMap<>();
     private final Map<Object, PacketInfo> UNFILTERED_PKT_TYPE_STATS = new ConcurrentHashMap<>();
     private final Map<UUID, PacketInfo> UNFILTERED_PLAYER_PKT_SAVED_STATS = new ConcurrentHashMap<>();
-    private final ThreadLocalRandom RANDOM = ThreadLocalRandom.current();
     private boolean calcAllPackets = false;
     private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
 
@@ -233,7 +232,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ROTATION || // 原代码的 ENTITY_LOOK
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY) {
                 
-                if (RANDOM.nextDouble() < 0.02) { // 2% 放行
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.02) { // 2% 放行
                     return;
                 }
                 event.setCancelled(true);
@@ -243,7 +242,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
             // 实体生成 (SPAWN_ENTITY) - 依然保持 50% 拦截来省流量，但不再记录 ID
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY) {
-                if (RANDOM.nextInt(2) > 0) { // 50% 放行
+                if (java.util.concurrent.ThreadLocalRandom.current().nextInt(2) > 0) { // 50% 放行
                     return;
                 }
                 event.setCancelled(true);
@@ -259,7 +258,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
             // 头部旋转
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_HEAD_LOOK) {
-                if (RANDOM.nextDouble() < 0.20) {
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.20) {
                     return;
                 }
                 event.setCancelled(true);
@@ -269,7 +268,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             
             // 元数据更新
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_METADATA) {
-                 if (RANDOM.nextDouble() < 0.05) {
+                 if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.05) {
                     return;
                 }
                 event.setCancelled(true);
@@ -778,15 +777,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         
         initializePlayerHeadTracking(player);
         
-        // 如果玩家在手动AFK模式下重新加入游戏，则自动退出手动AFK模式
-        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
-            HARDCORE_AFK_PLAYERS.remove(playerId); // 移除手动AFK状态
-            if (AFK_PLAYERS.contains(playerId)) {
-                playerEcoDisable(player); // 如果在AFK状态，也退出AFK
-            }
-            // 不要自动重新启用AFK状态
-        }
-        
         // 为新加入的玩家调度专用任务
         schedulePlayerTask(player);
     }
@@ -855,49 +845,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             LAST_HEAD_MOVEMENT_TIME.put(playerId, System.currentTimeMillis());
         }
     }
-
-
-    
-
-    
-    /**
-     * 从数据包中提取实体ID
-     */
-    private int getEntityIdFromPacket(Object packet) {
-        try {
-            // 由于我们不能直接访问原始包对象，我们需要通过PacketSendEvent获取相关信息
-            // 在智能过滤函数中，我们可以通过事件获取更准确的信息
-            return 0; // 临时返回值，实际逻辑在shouldSendEntityPacket中处理
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-    
-    /**
-     * 从数据包中提取实体X坐标
-     */
-    private double getEntityXFromPacket(Object packet) {
-        try {
-            return 0.0; // 临时返回值
-        } catch (Exception e) {
-            return 0.0;
-        }
-    }
-    
-    /**
-     * 从数据包中提取实体Z坐标
-     */
-    private double getEntityZFromPacket(Object packet) {
-        try {
-            return 0.0; // 临时返回值
-        } catch (Exception e) {
-            return 0.0;
-        }
-    }
-    
-
-    
-
 
     @Override
     public void onDisable() {
