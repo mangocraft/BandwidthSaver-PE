@@ -181,41 +181,47 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
             
-            // 特殊处理：BOSS_BAR - 实现白名单机制
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR) { // Boss栏 - 但现在使用白名单机制
-                try {
-                    // 解析包获取 packetUuid
-                    WrapperPlayServerBossBar bossBarWrapper = new WrapperPlayServerBossBar(event);
-                    UUID packetUuid = bossBarWrapper.getUUID();
+            // 特殊处理：BOSS_BAR - 白名单机制 (零分配极速版)
+            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR) {
+                io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
+                // UUID 长度为 16 字节 (两个 8 字节的 long)
+                if (buf != null && buf.readableBytes() >= 16) {
+                    buf.markReaderIndex();
+                    long mostSigBits = buf.readLong();  // 读取 UUID 高位
+                    long leastSigBits = buf.readLong(); // 读取 UUID 低位
+                    buf.resetReaderIndex();
                     
-                    // 从 ECO_BAR_UUIDS 获取该玩家允许的 allowedUuid
+                    // 获取允许通过的 ECO BossBar UUID
                     UUID allowedUuid = ECO_BAR_UUIDS.get(uuid);
                     
-                    // 如果 packetUuid.equals(allowedUuid) -> 放行 (return)
-                    if (allowedUuid != null && packetUuid.equals(allowedUuid)) {
-                        return; // 允许ECO提示条通过
+                    // 直接进行 long 基础数据类型对比！不产生任何临时 UUID 对象！速度极快！
+                    if (allowedUuid != null 
+                        && allowedUuid.getMostSignificantBits() == mostSigBits 
+                        && allowedUuid.getLeastSignificantBits() == leastSigBits) {
+                        return; // 匹配成功，放行 ECO 提示条
                     }
                     
-                    // 否则（说明是 TPS 条或其他条）-> 拦截 (event.setCancelled(true)) 并记录统计
-                    event.setCancelled(true);
-                    handleCancelledPacketWithSize(event, uuid, packetSize);
-                    return;
-                } catch (Exception e) {
-                    // 如果解析失败，按照原来的逻辑处理
+                    // 不匹配，直接拦截，完全避开了庞大的 BossBar 内容解析
                     event.setCancelled(true);
                     handleCancelledPacketWithSize(event, uuid, packetSize);
                     return;
                 }
             }
 
-            // 2. 特殊处理：受伤动画 (EntityStatus)
-            // 原代码中的 "HURT_ANIMATION" 是无效的
+            // 2. 特殊处理：受伤动画 (EntityStatus) - 零分配极速读取
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_STATUS) {
-                com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityStatus statusWrapper = new com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityStatus(event);
-                // 使用正确的方法名
-                if (statusWrapper.getStatus() == 2) { // 2 代表受伤变红
-                    event.setCancelled(true);
-                    handleCancelledPacketWithSize(event, uuid, packetSize);
+                io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
+                // 确保数据包长度足够 (int 4 字节 + byte 1 字节 = 5 字节)
+                if (buf != null && buf.readableBytes() >= 5) {
+                    buf.markReaderIndex(); // ⚠️ 必须：标记当前读取指针位置
+                    buf.skipBytes(4);      // 跳过前 4 个字节的 Entity ID
+                    byte status = buf.readByte(); // 读取第 5 个字节（状态码）
+                    buf.resetReaderIndex(); // ⚠️ 必须：把读取指针归位！否则后续放行的话服务端会读错数据导致断开连接
+                    
+                    if (status == 2) { // 2 代表受伤变红
+                        event.setCancelled(true);
+                        handleCancelledPacketWithSize(event, uuid, packetSize);
+                    }
                 }
                 return;
             }
