@@ -823,28 +823,35 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         // Vehicle movement alone shouldn't impact AFK state
     }
 
+    // 换成范围更广的 EntityDamageEvent，涵盖跌落、火焰、岩浆、溺水等所有伤害
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
-    public void onEntityDamageByEntity(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
-        // 检查是否是玩家受到了攻击
+    public void onEntityDamage(org.bukkit.event.entity.EntityDamageEvent event) {
+        // 检查是否是玩家受到了伤害
         if (event.getEntity() instanceof Player) {
             Player player = (Player) event.getEntity();
             UUID playerId = player.getUniqueId();
             
             // 检查玩家是否有绕过权限
             if (player.hasPermission("bandwidthsaver.bypass")) {
-                // 如果玩家有绕过权限且处于AFK状态，则退出AFK
                 if (AFK_PLAYERS.contains(playerId)) {
                     playerEcoDisable(player);
                 }
-                return; // 不进行后续AFK检测
+                return; // 不进行后续 AFK 检测
+            }
+
+            // 新增：硬核 AFK 模式保护
+            if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+                // 如果是手动输入的 /afk，被打时不退出 AFK（硬核到底）
+                // 或者你也可以在这里加上 HARDCORE_AFK_PLAYERS.remove(playerId); 让他彻底醒来
+                return;
             }
             
-            // 如果玩家处于AFK状态，受到攻击时退出AFK
+            // 普通自动 AFK 状态，受到任何伤害时退出 AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
             }
             
-            // 更新最后头部移动时间，避免立即再次进入AFK
+            // 更新最后头部移动时间，避免立即再次进入 AFK
             LAST_HEAD_MOVEMENT_TIME.put(playerId, System.currentTimeMillis());
         }
     }
