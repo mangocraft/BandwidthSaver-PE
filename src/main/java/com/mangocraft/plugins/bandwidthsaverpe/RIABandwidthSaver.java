@@ -155,8 +155,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT ||
                     type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY ||
                     type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION) {
-                    // 对钓鱼玩家放行声音效果和鱼漂动画相关数据包
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE || // 放行水花粒子，让玩家能看到鱼上钩的轨迹
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY || // 放行生成的掉落物实体（钓上来的鱼）
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_METADATA) { // 放行实体的元数据（决定掉落物显示为什么物品）
+                    
+                    // 对钓鱼玩家放行声音效果、鱼漂动画、粒子、掉落物生成及显示相关数据包
                     return; // 不取消数据包，让其通过
                 }
             }
