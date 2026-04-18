@@ -1,8 +1,11 @@
 # 计算所有数据包（即启用 /riabandwidthsaver unfiltered 的统计信息）
 calcAllPackets: false
 modifyPlayerViewDistance: false
-# 视角检测AFK阈值（秒），默认为 300 秒（5分钟）
+# 视角检测 AFK 阈值（秒），默认为 300 秒（5 分钟）
 afkPerspectiveThresholdSeconds: 300
+# 是否拦截 TAB 列表相关数据包 (默认为 true)
+# 如果发现 TAB 列表不刷新、延迟 (Ping) 不更新或头衔显示错误，请将其设为 false
+intercept-tab-list: true
 # 调试模式开关，开启后会在控制台输出智能过滤区域信息
 debug: false
 message:

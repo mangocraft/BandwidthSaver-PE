@@ -58,6 +58,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Map<Object, PacketInfo> UNFILTERED_PKT_TYPE_STATS = new ConcurrentHashMap<>();
     private final Map<UUID, PacketInfo> UNFILTERED_PLAYER_PKT_SAVED_STATS = new ConcurrentHashMap<>();
     private boolean calcAllPackets = false;
+    private boolean interceptTabList = true;
     private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
 
 
@@ -173,15 +174,24 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.EXPLOSION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DAMAGE_EVENT ||     // 1.19.4+
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_LIST_HEADER_AND_FOOTER || // 修正名称
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MAP_DATA ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT || // 光照更新 - 节省大量流量
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { // 实体传送 - 全部拦截 ENTITY_TELEPORT
                 
                 event.setCancelled(true);
                 handleCancelledPacketWithSize(event, uuid, packetSize);
                 return;
+            }
+            
+            // --- 新增：动态处理 TAB 列表拦截 ---
+            if (interceptTabList) {
+                if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_LIST_HEADER_AND_FOOTER ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE) {
+                    
+                    event.setCancelled(true);
+                    handleCancelledPacketWithSize(event, uuid, packetSize);
+                    return;
+                }
             }
             
             // 特殊处理：BOSS_BAR - 白名单机制 (零分配极速版)
@@ -407,6 +417,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     public void reloadConfig() {
         super.reloadConfig();
         this.calcAllPackets = getConfig().getBoolean("calcAllPackets", true);
+        this.interceptTabList = getConfig().getBoolean("intercept-tab-list", true); // 新增：读取 TAB 列表拦截配置
         
         // Load AFK threshold for perspective-based detection (in seconds, convert to milliseconds)
         int afkThresholdSeconds = getConfig().getInt("afkPerspectiveThresholdSeconds", 300); // Default to 5 minutes
@@ -414,7 +425,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         
         // Since we register the listener once at startup, we don't need to re-register
         // Just reconfigure the plugin settings
-        this.calcAllPackets = getConfig().getBoolean("calcAllPackets", true);
     }
 
     private void initPacketEvents() {
