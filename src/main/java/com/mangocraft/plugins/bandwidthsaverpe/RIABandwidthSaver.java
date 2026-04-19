@@ -147,7 +147,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             // READ PACKET SIZE IN MAIN THREAD BEFORE CANCELLATION - CRITICAL FOR BYTEBUF LIFECYCLE
             long packetSize = getPacketSizeFromEvent(event); // Read in main thread before cancellation
             
-            // --- ✅ 修正开始：使用 PacketType 枚举对比 ---
             com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon type = event.getPacketType();
 
             // 如果玩家在钓鱼，对特定数据包放行
@@ -166,7 +165,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }
             }
 
-            // 1. 完全取消的数据包 (直接列出 PacketType)
+            // 1. 完全取消的数据包
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ANIMATION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_BREAK_ANIMATION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SOUND_EFFECT ||
@@ -194,7 +193,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }
             }
             
-            // 特殊处理：BOSS_BAR - 白名单机制 (零分配极速版)
+            // 特殊处理：BOSS_BAR - 白名单机制
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR) {
                 io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
                 // UUID 长度为 16 字节 (两个 8 字节的 long)
@@ -221,7 +220,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }
             }
 
-            // 2. 特殊处理：受伤动画 (EntityStatus) - 零分配极速读取
+            // 2. 特殊处理：受伤动画 (EntityStatus)
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_STATUS) {
                 io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
                 // 确保数据包长度足够 (int 4 字节 + byte 1 字节 = 5 字节)
@@ -265,7 +264,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             }
 
             // 实体销毁 (DESTROY_ENTITIES) - 100% 放行！
-            // 解决死掉的生物一直红色的倒在地上不消失的 Bug
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DESTROY_ENTITIES) {
                 return; // 绝不拦截，让客户端正常清理尸体
             }
@@ -576,12 +574,10 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         // 强制刷新玩家周围的实体位置，修复"幽灵实体"Bug
         player.getScheduler().run(this, task -> {
             try {
-                // ✅ 绝对安全：使用 player.getNearbyEntities 只获取该玩家周边的实体，不会触发 Folia 跨区报错
                 java.util.List<org.bukkit.entity.Entity> nearbyEntities = player.getNearbyEntities(48, 48, 48);
                 
                 for (org.bukkit.entity.Entity entity : nearbyEntities) {
                     if (entity.isValid()) {
-                        // ✅ 新增：绝对不要刷新玩家自己正在乘坐的载具，否则客户端秒崩！
                         if (player.isInsideVehicle() && entity.equals(player.getVehicle())) {
                             continue;
                         }
@@ -591,7 +587,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                             player.hidePlayer(this, nearbyPlayer);
                             player.showPlayer(this, nearbyPlayer);
                         } else {
-                            // ✅ 极其关键：必须刷新怪物和掉落物，否则玩家退出 AFK 后会被隐形怪物攻击！
                             org.bukkit.entity.EntityType type = entity.getType();
                             if (type != org.bukkit.entity.EntityType.ARMOR_STAND && 
                                 type != org.bukkit.entity.EntityType.ITEM_FRAME && 
