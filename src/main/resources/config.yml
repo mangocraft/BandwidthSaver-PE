@@ -6,8 +6,8 @@ afkPerspectiveThresholdSeconds: 300
 # 是否拦截 TAB 列表相关数据包 (默认为 true)
 # 如果发现 TAB 列表不刷新、延迟 (Ping) 不更新或头衔显示错误，请将其设为 false
 intercept-tab-list: true
-# 是否拦截区块和光照数据包 (LEVEL_CHUNK_WITH_LIGHT)
-# 开启后可极大幅度节省流量，但退出 AFK 时可能会有零点几秒的卡顿来重新加载地形
+# 是否拦截区块和光照数据包 
+# 开启后可极大幅度节省流量，但退出 AFK 时可能产生只能重进才能加载的虚空区块，比较影响玩家体验
 intercept-chunk-packets: false
 # 退出 AFK 强制刷新区块时，是否兼容 PVDC 等动态视距插件 (仅在开启上一项时有效)
 # 开启后，会延迟 2 秒等待 PVDC 结算视距，然后再进行"+1"的视距拉扯刷新，防止视距被锁死
