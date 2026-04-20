@@ -61,6 +61,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Map<UUID, PacketInfo> UNFILTERED_PLAYER_PKT_SAVED_STATS = new ConcurrentHashMap<>();
     private boolean calcAllPackets = false;
     private boolean interceptTabList = true;
+    private boolean interceptChunkPackets = false;
+    private boolean compatibleWithPvdc = false;
     private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
 
 
@@ -181,7 +183,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
             
-            // --- 新增：动态处理 TAB 列表拦截 ---
+            // 动态处理 TAB 列表拦截
             if (interceptTabList) {
                 if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_LIST_HEADER_AND_FOOTER ||
                     type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE) {
@@ -191,20 +193,28 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     return;
                 }
             }
-            
 
+            // 动态处理区块包拦截（拦截加载和卸载，让客户端地形冻结）
+            if (interceptChunkPackets) {
+                if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.CHUNK_DATA ||
+                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UNLOAD_CHUNK) {
+                    
+                    event.setCancelled(true);
+                    handleCancelledPacketWithSize(event, uuid, packetSize);
+                    return;
+                }
+            }
 
-            // 2. 特殊处理：受伤动画 (EntityStatus)
+            // 特殊处理：受伤动画（拦截状态码为 2 的受伤变红效果）
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_STATUS) {
                 io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
-                // 确保数据包长度足够 (int 4 字节 + byte 1 字节 = 5 字节)
                 if (buf != null && buf.readableBytes() >= 5) {
-                    buf.markReaderIndex(); // ⚠️ 必须：标记当前读取指针位置
-                    buf.skipBytes(4);      // 跳过前 4 个字节的 Entity ID
-                    byte status = buf.readByte(); // 读取第 5 个字节（状态码）
-                    buf.resetReaderIndex(); // ⚠️ 必须：把读取指针归位！否则后续放行的话服务端会读错数据导致断开连接
+                    buf.markReaderIndex();
+                    buf.skipBytes(4);
+                    byte status = buf.readByte();
+                    buf.resetReaderIndex();
                     
-                    if (status == 2) { // 2 代表受伤变红
+                    if (status == 2) {
                         event.setCancelled(true);
                         handleCancelledPacketWithSize(event, uuid, packetSize);
                     }
@@ -212,14 +222,13 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 3. 概率过滤的数据包
-            // 实体移动类 (修正了名称)
+            // 概率过滤：实体移动类数据包（98% 拦截）
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ROTATION || // 原代码的 ENTITY_LOOK
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ROTATION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY) {
                 
-                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.02) { // 2% 放行
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.02) {
                     return;
                 }
                 event.setCancelled(true);
@@ -227,9 +236,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 实体生成 (SPAWN_ENTITY) - 依然保持 50% 拦截来省流量，但不再记录 ID
+            // 概率过滤：实体生成（50% 拦截）
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY) {
-                if (java.util.concurrent.ThreadLocalRandom.current().nextInt(2) > 0) { // 50% 放行
+                if (java.util.concurrent.ThreadLocalRandom.current().nextInt(2) > 0) {
                     return;
                 }
                 event.setCancelled(true);
@@ -237,12 +246,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 实体销毁 (DESTROY_ENTITIES) - 100% 放行！
+            // 实体销毁：100% 放行（让客户端正常清理实体）
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DESTROY_ENTITIES) {
-                return; // 绝不拦截，让客户端正常清理尸体
+                return;
             }
 
-            // 头部旋转
+            // 概率过滤：实体头部旋转（80% 拦截）
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_HEAD_LOOK) {
                 if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.20) {
                     return;
@@ -252,7 +261,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
             
-            // 元数据更新
+            // 概率过滤：实体元数据更新（95% 拦截）
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_METADATA) {
                  if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.05) {
                     return;
@@ -262,19 +271,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
+            // 方块动作：全部放行
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_ACTION) {
-                // BLOCK_ACTION: 全部通过，不进行拦截 - 取消拦截
-                return; // Don't cancel, allow through
+                return;
             }
 
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_CHANGE) {
-                // 不再过滤BLOCK_CHANGE数据包，直接允许通过 - 解决过多bug问题
-                return; // Don't cancel, allow through
-            }
-
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
-                // MULTI_BLOCK_CHANGE: 全部通过，不进行拦截 - 避免方块状态同步问题
-                return; // Don't cancel, allow through
+            // 方块更新：全部放行（避免方块状态同步问题）
+            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_CHANGE ||
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
+                return;
             }
         }
 
@@ -390,14 +395,13 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     public void reloadConfig() {
         super.reloadConfig();
         this.calcAllPackets = getConfig().getBoolean("calcAllPackets", true);
-        this.interceptTabList = getConfig().getBoolean("intercept-tab-list", true); // 新增：读取 TAB 列表拦截配置
+        this.interceptTabList = getConfig().getBoolean("intercept-tab-list", true);
+        this.interceptChunkPackets = getConfig().getBoolean("intercept-chunk-packets", false);
+        this.compatibleWithPvdc = getConfig().getBoolean("compatible-with-pvdc", false);
         
-        // Load AFK threshold for perspective-based detection (in seconds, convert to milliseconds)
-        int afkThresholdSeconds = getConfig().getInt("afkPerspectiveThresholdSeconds", 300); // Default to 5 minutes
-        this.afkThresholdMs = afkThresholdSeconds * 1000L; // Convert seconds to milliseconds
-        
-        // Since we register the listener once at startup, we don't need to re-register
-        // Just reconfigure the plugin settings
+        // 加载 AFK 阈值配置（秒转毫秒）
+        int afkThresholdSeconds = getConfig().getInt("afkPerspectiveThresholdSeconds", 300);
+        this.afkThresholdMs = afkThresholdSeconds * 1000L;
     }
 
     private void initPacketEvents() {
@@ -411,10 +415,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     }
     
     private void handleCancelledPacketWithSize(PacketSendEvent event, UUID uuid, long packetSize) {
-        // Process cancelled packet statistics using LongAdder directly for high concurrency
+        // 处理被拦截数据包的统计信息
         Object packetType = event.getPacketType();
         
-        // Use computeIfAbsent with LongAdder's add() method for better performance on Folia
         PKT_TYPE_STATS.computeIfAbsent(packetType, k -> new PacketInfo()).addValues(1, packetSize);
         PLAYER_PKT_SAVED_STATS.computeIfAbsent(uuid, k -> new PacketInfo()).addValues(1, packetSize);
     }
@@ -425,11 +428,10 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (rawBuffer != null) {
                 ByteBuf byteBuf = (ByteBuf) rawBuffer;
                 return ByteBufHelper.readableBytes(byteBuf);
-            } else {
-                return 0L;
             }
+            return 0L;
         } catch (Exception e) {
-            return 0L; // 出错时记录体积为 0
+            return 0L;
         }
     }
 
@@ -441,72 +443,58 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             player.sendMessage(message);
         }
         if(getConfig().getBoolean("modifyPlayerViewDistance")) {
-                    player.setSendViewDistance(8);
-                }
+            player.setSendViewDistance(8);
+        }
         
-        // 创建ECO模式BossBar提示
+        // 创建 ECO 模式 BossBar
         UUID playerUuid = player.getUniqueId();
-        UUID ecoBarUuid = UUID.randomUUID(); // 生成随机UUID作为ECO条的ID
+        UUID ecoBarUuid = UUID.randomUUID();
         ECO_BAR_UUIDS.put(playerUuid, ecoBarUuid);
 
-        // 使用PacketEvents发送BossBar数据包
         try {
-            // 从配置文件获取BossBar参数
+            // 从配置文件获取 BossBar 参数
             String titleText = getConfig().getString("bossbar.eco-enabled-title", "<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>");
             float health = (float) getConfig().getDouble("bossbar.eco-enabled-health", 1.0);
             String colorStr = getConfig().getString("bossbar.eco-enabled-color", "YELLOW");
             String overlayStr = getConfig().getString("bossbar.eco-enabled-overlay", "PROGRESS");
             
-            // 构建BossBar标题组件
             Component title = MiniMessage.miniMessage().deserialize(titleText);
             
-            // 创建ADD类型的BossBar包
             WrapperPlayServerBossBar bossBarPacket = new WrapperPlayServerBossBar(
                 ecoBarUuid,
                 WrapperPlayServerBossBar.Action.ADD
             );
             
-            // 设置BossBar属性
             bossBarPacket.setTitle(title);
             bossBarPacket.setHealth(health);
             
-            // 根据配置设置颜色
             net.kyori.adventure.bossbar.BossBar.Color color;
             try {
                 color = net.kyori.adventure.bossbar.BossBar.Color.valueOf(colorStr.toUpperCase());
             } catch (IllegalArgumentException e) {
-                getLogger().warning("Invalid bossbar color: " + colorStr + ", using YELLOW as default.");
                 color = net.kyori.adventure.bossbar.BossBar.Color.YELLOW;
             }
             
-            // 根据配置设置样式
             net.kyori.adventure.bossbar.BossBar.Overlay overlay;
             try {
                 overlay = net.kyori.adventure.bossbar.BossBar.Overlay.valueOf(overlayStr.toUpperCase());
             } catch (IllegalArgumentException e) {
-                getLogger().warning("Invalid bossbar overlay: " + overlayStr + ", using PROGRESS as default.");
                 overlay = net.kyori.adventure.bossbar.BossBar.Overlay.PROGRESS;
             }
             
             bossBarPacket.setColor(color);
             bossBarPacket.setOverlay(overlay);
-            
-            // 修复空指针报错：显式设置flags字段
             bossBarPacket.setFlags(java.util.EnumSet.noneOf(net.kyori.adventure.bossbar.BossBar.Flag.class));
             
-            // 发送BossBar数据包给玩家
             PacketEvents.getAPI().getPlayerManager().sendPacket(player, bossBarPacket);
         } catch (Exception e) {
             getLogger().warning("Failed to send ECO BossBar to player " + player.getName() + ": " + e.getMessage());
         }
 
-        // 使用延迟调度器添加AFK标记，避免竞态条件
-        // 确保BossBar数据包先通过监听器（此时玩家尚未被标记为AFK，监听器会直接return放行）
-        // 然后再将玩家标记为AFK
+        // 延迟 1 tick 添加 AFK 标记（确保 BossBar 数据包先通过监听器）
         player.getScheduler().runDelayed(this, (task) -> {
             if (player.isOnline()) {
                 AFK_PLAYERS.add(player.getUniqueId());
-                // 新增：统一在这里记录准确的进入AFK时间
                 ENTER_AFK_TIME.put(player.getUniqueId(), System.currentTimeMillis());
                 getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") entered AFK mode");
             }
@@ -517,16 +505,52 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         UUID playerUuid = player.getUniqueId();
         AFK_PLAYERS.remove(playerUuid);
         
-        // --- 新增：结算本次 AFK 时长并累加 ---
+        // 结算本次 AFK 时长并累加
         Long enterTime = ENTER_AFK_TIME.remove(playerUuid);
         if (enterTime != null) {
             long duration = System.currentTimeMillis() - enterTime;
             TOTAL_AFK_TIME_MS.computeIfAbsent(playerUuid, k -> new java.util.concurrent.atomic.LongAdder()).add(duration);
         }
-        // ----------------------------------
         
-        if(getConfig().getBoolean("modifyPlayerViewDistance")) {
-            player.setSendViewDistance(-1);
+        // 三重分支视距恢复逻辑
+        boolean modifyVD = getConfig().getBoolean("modifyPlayerViewDistance");
+
+        if (interceptChunkPackets) {
+            if (compatibleWithPvdc) {
+                // 分支 1：兼容 PVDC 模式（延迟 2 秒等待 PVDC 结算，再拉扯视距）
+                player.getScheduler().runDelayed(this, task1 -> {
+                    if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
+                        int currentVD = player.getSendViewDistance();
+                        int targetVD = currentVD > 0 ? currentVD : Bukkit.getServer().getViewDistance();
+                        
+                        player.setSendViewDistance(targetVD + 1);
+                        
+                        player.getScheduler().runDelayed(this, task2 -> {
+                            if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid) && player.getSendViewDistance() == targetVD + 1) {
+                                player.setSendViewDistance(modifyVD ? -1 : targetVD);
+                            }
+                        }, null, 20L);
+                    }
+                }, null, 40L);
+                
+            } else {
+                // 分支 2：不兼容 PVDC 模式（立即拉扯视距）
+                int currentVD = player.getSendViewDistance();
+                int targetVD = currentVD > 0 ? currentVD : Bukkit.getServer().getViewDistance();
+                
+                player.setSendViewDistance(targetVD + 1);
+                
+                player.getScheduler().runDelayed(this, task -> {
+                    if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
+                        player.setSendViewDistance(modifyVD ? -1 : targetVD);
+                    }
+                }, null, 20L);
+            }
+        } else {
+            // 分支 3：不拦截区块，走原始逻辑
+            if (modifyVD) {
+                player.setSendViewDistance(-1);
+            }
         }
         player.resetPlayerTime();
         String message = getConfig().getString("message.playerEcoDisable", "");
@@ -534,17 +558,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             player.sendMessage(message);
         }
         
-        // 移除 ECO 模式 BossBar 提示
+        // 移除 ECO 模式 BossBar
         UUID ecoBarUuid = ECO_BAR_UUIDS.get(playerUuid);
         if (ecoBarUuid != null) {
             try {
-                // 创建 REMOVE 类型的 BossBar 包
                 WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(
                     ecoBarUuid,
                     WrapperPlayServerBossBar.Action.REMOVE
                 );
                 
-                // 修复空指针报错：显式设置 flags 字段
                 removeBossBarPacket.setFlags(java.util.EnumSet.noneOf(net.kyori.adventure.bossbar.BossBar.Flag.class));
                 
                 // 发送移除 BossBar 数据包给玩家
@@ -844,15 +866,41 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         }
     }
 
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
+        
+        // 忽略同区块内的微小移动（比如上下车）
+        if (event.getFrom().getWorld() == event.getTo().getWorld() && 
+            event.getFrom().distanceSquared(event.getTo()) < 16) { 
+            return;
+        }
+
+        // 如果玩家在 AFK 期间被传送（如管理员强制 tp、死亡重生等）
+        // 立刻打断 AFK，否则到了新地方加载不出区块会一直往下掉
+        if (AFK_PLAYERS.contains(playerId)) {
+            playerEcoDisable(player);
+            // 更新最后头部移动时间，防止刚传过去又秒进 AFK
+            LAST_HEAD_MOVEMENT_TIME.put(playerId, System.currentTimeMillis());
+            
+            // 如果是硬核模式，为了防止卡死，也建议暂时移除
+            if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+                HARDCORE_AFK_PLAYERS.remove(playerId);
+                player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出手动 AFK 模式以加载地形。");
+            }
+        }
+    }
+
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
         // 取消所有玩家的专用任务
         for (io.papermc.paper.threadedregions.scheduler.ScheduledTask task : PLAYER_TASKS.values()) {
             task.cancel();
         }
         PLAYER_TASKS.clear();
         
+        // 关闭线程池
         EXECUTOR_SERVICE.shutdown();
         try {
             if (!EXECUTOR_SERVICE.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -863,7 +911,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             Thread.currentThread().interrupt();
         }
         
-        // Terminate PacketEvents
+        // 终止 PacketEvents
         if (packetEventsAPI != null) {
             packetEventsAPI.terminate();
         }
@@ -884,7 +932,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
-        // 检查是否是afk命令
+        // 处理 /afk 命令（手动 AFK 模式）
         if (command.getName().equalsIgnoreCase("afk")) {
             if (!(sender instanceof Player)) {
                 sender.sendMessage(ChatColor.RED + "此命令只能由玩家执行！");
@@ -895,24 +943,22 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             UUID playerId = player.getUniqueId();
             
             if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
-                // 退出硬核AFK模式
                 HARDCORE_AFK_PLAYERS.remove(playerId);
                 if (AFK_PLAYERS.contains(playerId)) {
                     playerEcoDisable(player);
                 }
-                player.sendMessage(ChatColor.GREEN + "您已退出手动AFK模式！");
+                player.sendMessage(ChatColor.GREEN + "您已退出手动 AFK 模式！");
             } else {
-                // 进入硬核AFK模式
                 HARDCORE_AFK_PLAYERS.add(playerId);
                 if (!AFK_PLAYERS.contains(playerId)) {
                     playerEcoEnable(player);
                 }
-                player.sendMessage(ChatColor.YELLOW + "您已进入手动AFK模式！再次输入/afk退出此模式。");
+                player.sendMessage(ChatColor.YELLOW + "您已进入手动 AFK 模式！再次输入/afk 退出此模式。");
             }
             return true;
         }
         
-        // 检查是否是bandwidthsaver命令
+        // 处理 /bandwidthsaver 命令
         if (command.getName().equalsIgnoreCase("bandwidthsaver")) {
             // Check if sender has admin permission for all commands
             if (!sender.hasPermission("bandwidthsaver.admin")) {
