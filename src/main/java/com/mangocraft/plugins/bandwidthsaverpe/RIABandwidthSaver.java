@@ -192,32 +192,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }
             }
             
-            // 特殊处理：BOSS_BAR - 白名单机制
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BOSS_BAR) {
-                io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
-                // UUID 长度为 16 字节 (两个 8 字节的 long)
-                if (buf != null && buf.readableBytes() >= 16) {
-                    buf.markReaderIndex();
-                    long mostSigBits = buf.readLong();  // 读取 UUID 高位
-                    long leastSigBits = buf.readLong(); // 读取 UUID 低位
-                    buf.resetReaderIndex();
-                    
-                    // 获取允许通过的 ECO BossBar UUID
-                    UUID allowedUuid = ECO_BAR_UUIDS.get(uuid);
-                    
-                    // 直接进行 long 基础数据类型对比！不产生任何临时 UUID 对象！速度极快！
-                    if (allowedUuid != null 
-                        && allowedUuid.getMostSignificantBits() == mostSigBits 
-                        && allowedUuid.getLeastSignificantBits() == leastSigBits) {
-                        return; // 匹配成功，放行 ECO 提示条
-                    }
-                    
-                    // 不匹配，直接拦截，完全避开了庞大的 BossBar 内容解析
-                    event.setCancelled(true);
-                    handleCancelledPacketWithSize(event, uuid, packetSize);
-                    return;
-                }
-            }
+
 
             // 2. 特殊处理：受伤动画 (EntityStatus)
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_STATUS) {
