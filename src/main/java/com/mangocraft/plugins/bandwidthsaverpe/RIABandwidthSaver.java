@@ -128,12 +128,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             
             UUID uuid = player.getUniqueId();
             
-            // Handle unfiltered statistics if enabled - READ PACKET SIZE IN MAIN THREAD BEFORE ANY CANCELLATIONS
+            // 在最开始统一读取一次大小，复用给所有统计逻辑
+            final long packetSize = getPacketSizeFromEvent(event);
+            
+            // 处理无过滤统计
             if (calcAllPackets) {
-                long packetSize = getPacketSizeFromEvent(event); // Read in main thread before cancellation
                 Object packetType = event.getPacketType();
-                
-                // Use LongAdder directly for high concurrency performance
                 UNFILTERED_PKT_TYPE_STATS.computeIfAbsent(packetType, k -> new PacketInfo()).addValues(1, packetSize);
                 UNFILTERED_PLAYER_PKT_SAVED_STATS.computeIfAbsent(uuid, k -> new PacketInfo()).addValues(1, packetSize);
             }
@@ -145,9 +145,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             
             // 检查玩家是否在钓鱼，如果是，则对某些数据包放行
             boolean isFishing = IS_FISHING_CACHE.getOrDefault(uuid, false);
-            
-            // READ PACKET SIZE IN MAIN THREAD BEFORE CANCELLATION - CRITICAL FOR BYTEBUF LIFECYCLE
-            long packetSize = getPacketSizeFromEvent(event); // Read in main thread before cancellation
             
             com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon type = event.getPacketType();
 
@@ -457,7 +454,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return 0L;
             }
         } catch (Exception e) {
-            return -1L;
+            return 0L; // 出错时记录体积为 0
         }
     }
 
