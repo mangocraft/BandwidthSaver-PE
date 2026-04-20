@@ -45,6 +45,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Map<UUID, Float> LAST_PITCH = new ConcurrentHashMap<>(); // 记录玩家最后的pitch（上下视角）
     private final Map<UUID, Long> LAST_HEAD_MOVEMENT_TIME = new ConcurrentHashMap<>(); // 记录最后头部移动时间
     private final Map<UUID, Long> ENTER_AFK_TIME = new ConcurrentHashMap<>(); // 记录进入AFK的时间
+    // 新增：记录玩家总计AFK时间（使用 LongAdder 保证并发性能）
+    private final Map<UUID, java.util.concurrent.atomic.LongAdder> TOTAL_AFK_TIME_MS = new ConcurrentHashMap<>();
     private static final float HEAD_MOVEMENT_THRESHOLD = 45.0f; // 视角移动阈值（度）
     private long afkThresholdMs = 300000; // AFK阈值：5分钟（毫秒），可从配置文件修改
     private static final long MIN_HEAD_MOVEMENT_INTERVAL_MS = 1000; // 最小头部移动检测间隔：1秒
@@ -364,7 +366,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         // 如果头部在一段时间内没有显著移动，则进入AFK状态
                         if (timeSinceLastHeadMovement >= afkThresholdMs) {
                             playerEcoEnable(player);
-                            ENTER_AFK_TIME.put(uuid, currentTime); // 记录进入AFK的时间
+                            // 删除这行，统一在 playerEcoEnable 中记录
+                            // ENTER_AFK_TIME.put(uuid, currentTime);
                         }
                     }
                 }
@@ -531,6 +534,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         player.getScheduler().runDelayed(this, (task) -> {
             if (player.isOnline()) {
                 AFK_PLAYERS.add(player.getUniqueId());
+                // 新增：统一在这里记录准确的进入AFK时间
+                ENTER_AFK_TIME.put(player.getUniqueId(), System.currentTimeMillis());
                 getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") entered AFK mode");
             }
         }, null, 1L);
@@ -539,6 +544,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     public void playerEcoDisable(Player player) {
         UUID playerUuid = player.getUniqueId();
         AFK_PLAYERS.remove(playerUuid);
+        
+        // --- 新增：结算本次 AFK 时长并累加 ---
+        Long enterTime = ENTER_AFK_TIME.remove(playerUuid);
+        if (enterTime != null) {
+            long duration = System.currentTimeMillis() - enterTime;
+            TOTAL_AFK_TIME_MS.computeIfAbsent(playerUuid, k -> new java.util.concurrent.atomic.LongAdder()).add(duration);
+        }
+        // ----------------------------------
+        
         if(getConfig().getBoolean("modifyPlayerViewDistance")) {
             player.setSendViewDistance(-1);
         }
@@ -806,6 +820,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         IS_FISHING_CACHE.remove(playerId); // 清除钓鱼状态缓存
         HARDCORE_AFK_PLAYERS.remove(playerId); // 清除手动 AFK 状态
         
+        // 新增：清理玩家总计 AFK 时间
+        TOTAL_AFK_TIME_MS.remove(playerId);
+        
         // 取消玩家的专用任务
         if (PLAYER_TASKS.containsKey(playerId)) {
             PLAYER_TASKS.get(playerId).cancel();
@@ -944,7 +961,21 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型节约 TOP 15 --");
                 sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
                 sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量节约 TOP 5 --");
-                sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> sender.sendMessage(ChatColor.GRAY + Bukkit.getOfflinePlayer(entry.getKey()).getName() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
+                sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> {
+                    UUID u = entry.getKey();
+                    String name = Bukkit.getOfflinePlayer(u).getName();
+                    long pkts = entry.getValue().getPktCounter().longValue();
+                    String size = humanReadableByteCount(entry.getValue().getPktSize().longValue(), false);
+                    
+                    // 计算该玩家的总AFK时间（如果正在挂机，则加上当前的挂机进度）
+                    long currentSession = 0;
+                    if (AFK_PLAYERS.contains(u) && ENTER_AFK_TIME.containsKey(u)) {
+                        currentSession = System.currentTimeMillis() - ENTER_AFK_TIME.get(u);
+                    }
+                    long totalAfk = (TOTAL_AFK_TIME_MS.containsKey(u) ? TOTAL_AFK_TIME_MS.get(u).sum() : 0) + currentSession;
+                    
+                    sender.sendMessage(ChatColor.GRAY + name + " - " + pkts + " 个 (" + size + ")" + ChatColor.GREEN + " [挂机时长: " + formatAfkTime(totalAfk) + "]");
+                });
             }
             if (args.length == 1 && args[0].equalsIgnoreCase("unfiltered")) {
                 sender.sendMessage(ChatColor.GREEN + "🍃 UN-ECO - 数据总计 - 统计信息：");
@@ -977,6 +1008,16 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         int exp = (int) (Math.log(bytes) / Math.log(unit));
         String pre = (si ? "kMGTPE" : "KMGTPE").charAt(exp - 1) + (si ? "" : "i");
         return String.format("%.1f %sB", bytes / Math.pow(unit, exp), pre);
+    }
+    
+    public static String formatAfkTime(long millis) {
+        long seconds = millis / 1000;
+        long h = seconds / 3600;
+        long m = (seconds % 3600) / 60;
+        long s = seconds % 60;
+        if (h > 0) return String.format("%d小时%d分%d秒", h, m, s);
+        if (m > 0) return String.format("%d分%d秒", m, s);
+        return String.format("%d秒", s);
     }
     
 
