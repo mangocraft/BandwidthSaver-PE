@@ -314,16 +314,28 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 检查玩家是否有绕过权限
-                if (player.hasPermission("bandwidthsaver.bypass")) {
-                    // 如果玩家有绕过权限且处于AFK状态，则退出AFK
+                // 终极免死金牌检测：是否有绕过权限，或者玩家正在睡觉
+                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping()) {
+                    
+                    // 如果他在床上，但已经被判定为 AFK，立刻强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
                         playerEcoDisable(player);
+                        
+                        // 如果他开启了手动硬核 AFK，也给他关掉，防止逻辑冲突
+                        if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
+                            HARDCORE_AFK_PLAYERS.remove(uuid);
+                            player.sendMessage(ChatColor.YELLOW + "检测到入睡，已自动为您关闭省流模式。");
+                        }
                     }
-                    return; // 跳过对该玩家的AFK检查
+                    
+                    // 疯狂刷新他的最后活动时间，保证他下床的瞬间不会被秒判 AFK
+                    LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
+                    
+                    // 直接 return，跳过下方所有的 AFK 倒计时逻辑
+                    return;
                 }
                 
-                // 检查是否为手动AFK模式
+                // 检查是否为手动 AFK 模式
                 if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                     // 手动AFK模式下，强制保持AFK状态
                     if (!AFK_PLAYERS.contains(uuid)) {
