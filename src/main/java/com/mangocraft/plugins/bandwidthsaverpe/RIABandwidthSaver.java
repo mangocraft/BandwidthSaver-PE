@@ -45,7 +45,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Map<UUID, Float> LAST_PITCH = new ConcurrentHashMap<>(); // 记录玩家最后的pitch（上下视角）
     private final Map<UUID, Long> LAST_HEAD_MOVEMENT_TIME = new ConcurrentHashMap<>(); // 记录最后头部移动时间
     private final Map<UUID, Long> ENTER_AFK_TIME = new ConcurrentHashMap<>(); // 记录进入AFK的时间
-    // 新增：记录玩家总计AFK时间（使用 LongAdder 保证并发性能）
+    // 新增：记录玩家总计AFK时间
     private final Map<UUID, java.util.concurrent.atomic.LongAdder> TOTAL_AFK_TIME_MS = new ConcurrentHashMap<>();
     private static final float HEAD_MOVEMENT_THRESHOLD = 45.0f; // 视角移动阈值（度）
     private long afkThresholdMs = 300000; // AFK阈值：5分钟（毫秒），可从配置文件修改
@@ -315,7 +315,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 免死金牌检测：有绕过权限、在睡觉、乘坐载具、或不在白名单世界
+                // 有绕过权限、在睡觉、乘坐载具、或不在白名单世界
                 String currentWorld = player.getWorld().getName().toLowerCase();
                 if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || !enabledWorlds.contains(currentWorld)) {
                     
@@ -402,7 +402,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         LAST_HEAD_MOVEMENT_TIME.putIfAbsent(playerId, System.currentTimeMillis());
     }
     
-    // 新的视角检测机制不需要这些活动记录方法
+
 
     @Override
     public void reloadConfig() {
