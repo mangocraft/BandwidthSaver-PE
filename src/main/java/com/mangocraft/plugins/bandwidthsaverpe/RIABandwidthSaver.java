@@ -63,6 +63,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private boolean interceptTabList = true;
     private boolean interceptChunkPackets = false;
     private boolean compatibleWithPvdc = false;
+    private List<String> enabledWorlds = new ArrayList<>();
     private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
 
 
@@ -314,25 +315,25 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 终极免死金牌检测：是否有绕过权限，或者玩家正在睡觉
-                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping()) {
+                // 免死金牌：有绕过权限、在睡觉，或者当前不在白名单世界里
+                String currentWorld = player.getWorld().getName().toLowerCase();
+                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || !enabledWorlds.contains(currentWorld)) {
                     
-                    // 如果他在床上，但已经被判定为 AFK，立刻强制唤醒
+                    // 如果已经在挂机了，直接强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
                         playerEcoDisable(player);
                         
-                        // 如果他开启了手动硬核 AFK，也给他关掉，防止逻辑冲突
+                        // 清除硬核挂机状态
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
-                            player.sendMessage(ChatColor.YELLOW + "检测到入睡，已自动为您关闭省流模式。");
+                            player.sendMessage(ChatColor.YELLOW + "当前所处世界或状态已自动关闭省流模式。");
                         }
                     }
                     
-                    // 疯狂刷新他的最后活动时间，保证他下床的瞬间不会被秒判 AFK
+                    // 刷新活跃时间，防止跨界/下床瞬间秒进 AFK
                     LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
                     
-                    // 直接 return，跳过下方所有的 AFK 倒计时逻辑
-                    return;
+                    return; // 跳过后续的挂机倒计时计算
                 }
                 
                 // 检查是否为手动 AFK 模式
@@ -410,6 +411,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         this.interceptTabList = getConfig().getBoolean("intercept-tab-list", true);
         this.interceptChunkPackets = getConfig().getBoolean("intercept-chunk-packets", false);
         this.compatibleWithPvdc = getConfig().getBoolean("compatible-with-pvdc", false);
+        
+        // 读取世界白名单，统一转小写以防匹配出错
+        this.enabledWorlds = getConfig().getStringList("enabled-worlds").stream()
+                .map(String::toLowerCase)
+                .collect(Collectors.toList());
         
         // 加载 AFK 阈值配置（秒转毫秒）
         int afkThresholdSeconds = getConfig().getInt("afkPerspectiveThresholdSeconds", 300);

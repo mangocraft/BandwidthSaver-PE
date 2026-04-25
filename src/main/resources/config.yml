@@ -12,6 +12,15 @@ intercept-chunk-packets: false
 # 退出 AFK 强制刷新区块时，是否兼容 PVDC 等动态视距插件 (仅在开启上一项时有效)
 # 开启后，会延迟 2 秒等待 PVDC 结算视距，然后再进行"+1"的视距拉扯刷新，防止视距被锁死
 compatible-with-pvdc: false
+# ==========================================
+# 作用世界设置（白名单机制）
+# ==========================================
+# 只有在以下列表中的世界，玩家才会进入省流模式。
+# 像大厅 (lobby)、小游戏 (minigames) 等未在列表里的世界，会自动禁用省流功能。
+enabled-worlds:
+  - "world"
+  - "world_nether"
+  - "world_the_end"
 # 调试模式开关，开启后会在控制台输出智能过滤区域信息
 debug: false
 message:
