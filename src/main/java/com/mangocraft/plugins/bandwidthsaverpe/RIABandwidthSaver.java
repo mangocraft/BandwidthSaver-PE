@@ -174,9 +174,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT || 
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.EXPLOSION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DAMAGE_EVENT ||     // 1.19.4+
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DAMAGE_EVENT ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MAP_DATA ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT || // 光照更新 - 节省大量流量
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { 
                 
                 event.setCancelled(true);
@@ -206,7 +206,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }
             }
 
-            // 特殊处理：受伤动画（拦截状态码为 2 的受伤变红效果）
+            // 特殊处理：受伤动画
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_STATUS) {
                 io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
                 if (buf != null && buf.readableBytes() >= 5) {
@@ -272,12 +272,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 方块动作：全部放行
+            // 方块动作放行
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_ACTION) {
                 return;
             }
 
-            // 方块更新：全部放行（避免方块状态同步问题）
+            // 避免方块状态同步问题
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_CHANGE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
                 return;
@@ -356,8 +356,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         // 如果头部在一段时间内没有显著移动，则进入AFK状态
                         if (timeSinceLastHeadMovement >= afkThresholdMs) {
                             playerEcoEnable(player);
-                            // 删除这行，统一在 playerEcoEnable 中记录
-                            // ENTER_AFK_TIME.put(uuid, currentTime);
                         }
                     }
                 }
@@ -530,12 +528,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             TOTAL_AFK_TIME_MS.computeIfAbsent(playerUuid, k -> new java.util.concurrent.atomic.LongAdder()).add(duration);
         }
         
-        // 三重分支视距恢复逻辑
+        // 视距恢复逻辑
         boolean modifyVD = getConfig().getBoolean("modifyPlayerViewDistance");
 
         if (interceptChunkPackets) {
             if (compatibleWithPvdc) {
-                // 分支 1：兼容 PVDC 模式（延迟 2 秒等待 PVDC 结算，再拉扯视距）
+                // 1：兼容 PVDC 模式（延迟 2 秒等待 PVDC 结算，再拉扯视距）
                 player.getScheduler().runDelayed(this, task1 -> {
                     if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
                         int currentVD = player.getSendViewDistance();
@@ -552,7 +550,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }, null, 40L);
                 
             } else {
-                // 分支 2：不兼容 PVDC 模式（立即拉扯视距）
+                // 2：不兼容 PVDC 模式（立即拉扯视距）
                 int currentVD = player.getSendViewDistance();
                 int targetVD = currentVD > 0 ? currentVD : Bukkit.getServer().getViewDistance();
                 
@@ -565,7 +563,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 }, null, 20L);
             }
         } else {
-            // 分支 3：不拦截区块，走原始逻辑
+            // 3：不拦截区块，走原始逻辑
             if (modifyVD) {
                 player.setSendViewDistance(-1);
             }
@@ -597,7 +595,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             }
         }
         
-        // 强制刷新玩家周围的实体位置，修复"幽灵实体"Bug
+        // 强制刷新玩家周围的实体位置，修复幽灵实体
         player.getScheduler().run(this, task -> {
             try {
                 java.util.List<org.bukkit.entity.Entity> nearbyEntities = player.getNearbyEntities(48, 48, 48);
@@ -867,10 +865,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return; // 不进行后续 AFK 检测
             }
 
-            // 新增：硬核 AFK 模式保护
+            // 硬核 AFK 模式保护
             if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
-                // 如果是手动输入的 /afk，被打时不退出 AFK（硬核到底）
-                // 或者你也可以在这里加上 HARDCORE_AFK_PLAYERS.remove(playerId); 让他彻底醒来
+                // 如果是手动输入的 /afk，被打时不退出 AFK
                 return;
             }
             
