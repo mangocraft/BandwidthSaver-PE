@@ -171,13 +171,13 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ANIMATION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_BREAK_ANIMATION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SOUND_EFFECT ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT || // 注意：Named Sound 和 Entity Sound
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT || 
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.EXPLOSION ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DAMAGE_EVENT ||     // 1.19.4+
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MAP_DATA ||
                 type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT || // 光照更新 - 节省大量流量
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { // 实体传送 - 全部拦截 ENTITY_TELEPORT
+                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { 
                 
                 event.setCancelled(true);
                 handleCancelledPacketWithSize(event, uuid, packetSize);
@@ -315,37 +315,37 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 免死金牌：有绕过权限、在睡觉、坐在载具（船/矿车/椅子）里、或者当前不在白名单世界里
+                // 免死金牌检测：有绕过权限、在睡觉、乘坐载具、或不在白名单世界
                 String currentWorld = player.getWorld().getName().toLowerCase();
                 if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || !enabledWorlds.contains(currentWorld)) {
                     
-                    // 如果已经在挂机了，直接强制唤醒
+                    // 若已处于 AFK 状态，立即强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
                         playerEcoDisable(player);
                         
-                        // 清除硬核挂机状态
+                        // 同步关闭硬核 AFK 模式，防止逻辑冲突
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
                             player.sendMessage(ChatColor.YELLOW + "检测到乘坐载具或处于特殊状态，已自动关闭省流模式。");
                         }
                     }
                     
-                    // 刷新活跃时间，防止刚脱离免死状态就秒进 AFK
+                    // 刷新最后活动时间，防止刚脱离免死状态就秒进 AFK
                     LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
                     
-                    return; // 只要满足上述条件，直接 return，跳过后续的挂机倒计时计算
+                    return; // 跳过后续所有 AFK 检测逻辑
                 }
                 
-                // 检查是否为手动 AFK 模式
+                // 手动 AFK 模式检测
                 if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
-                    // 手动AFK模式下，强制保持AFK状态
+                    // 强制保持 AFK 状态
                     if (!AFK_PLAYERS.contains(uuid)) {
                         playerEcoEnable(player);
                     }
-                    return; // 跳过常规AFK检查
+                    return; // 跳过常规 AFK 检测
                 }
                 
-                // 检查玩家是否不在AFK状态且应该进入AFK状态
+                // 常规 AFK 检测：检查是否应该进入 AFK 状态
                 if (!AFK_PLAYERS.contains(uuid)) {
                     Long lastHeadMovementTime = LAST_HEAD_MOVEMENT_TIME.get(uuid);
                     
