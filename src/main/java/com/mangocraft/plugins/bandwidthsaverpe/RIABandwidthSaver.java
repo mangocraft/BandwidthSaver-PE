@@ -315,9 +315,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 免死金牌：有绕过权限、在睡觉，或者当前不在白名单世界里
+                // 免死金牌：有绕过权限、在睡觉、坐在载具（船/矿车/椅子）里、或者当前不在白名单世界里
                 String currentWorld = player.getWorld().getName().toLowerCase();
-                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || !enabledWorlds.contains(currentWorld)) {
+                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || !enabledWorlds.contains(currentWorld)) {
                     
                     // 如果已经在挂机了，直接强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
@@ -326,14 +326,14 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         // 清除硬核挂机状态
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
-                            player.sendMessage(ChatColor.YELLOW + "当前所处世界或状态已自动关闭省流模式。");
+                            player.sendMessage(ChatColor.YELLOW + "检测到乘坐载具或处于特殊状态，已自动关闭省流模式。");
                         }
                     }
                     
-                    // 刷新活跃时间，防止跨界/下床瞬间秒进 AFK
+                    // 刷新活跃时间，防止刚脱离免死状态就秒进 AFK
                     LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
                     
-                    return; // 跳过后续的挂机倒计时计算
+                    return; // 只要满足上述条件，直接 return，跳过后续的挂机倒计时计算
                 }
                 
                 // 检查是否为手动 AFK 模式
