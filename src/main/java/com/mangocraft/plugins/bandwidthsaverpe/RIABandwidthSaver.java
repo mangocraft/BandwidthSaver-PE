@@ -315,9 +315,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 有绕过权限、在睡觉、乘坐载具、或不在白名单世界
+                // 免死金牌检测：特权、睡觉、载具、滑翔 (鞘翅)、或不在白名单世界
                 String currentWorld = player.getWorld().getName().toLowerCase();
-                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || !enabledWorlds.contains(currentWorld)) {
+                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || player.isGliding() || !enabledWorlds.contains(currentWorld)) {
                     
                     // 若已处于 AFK 状态，立即强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
@@ -326,7 +326,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         // 同步关闭硬核 AFK 模式，防止逻辑冲突
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
-                            player.sendMessage(ChatColor.YELLOW + "检测到乘坐载具或处于特殊状态，已自动关闭省流模式。");
+                            player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (乘车/飞行)，已自动关闭省流模式。");
                         }
                     }
                     
@@ -700,27 +700,25 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void onPlayerInteract(PlayerInteractEvent event) {
-        // Interactions don't directly affect AFK status in the new system
-        // Only head movements matter for AFK detection
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         
-        // Check if player has bypass permission
+        // 检查是否有绕过权限
         if (player.hasPermission("bandwidthsaver.bypass")) {
-            // If player has bypass permission and is in AFK, exit AFK
+            if (AFK_PLAYERS.contains(playerId)) playerEcoDisable(player);
+            return;
+        }
+        
+        // 硬核 AFK 模式下不处理
+        if (HARDCORE_AFK_PLAYERS.contains(playerId)) return;
+        
+        // 如果玩家使用了烟花火箭，强制唤醒并重置时间
+        if (event.getItem() != null && event.getItem().getType() == org.bukkit.Material.FIREWORK_ROCKET) {
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
             }
-            return; // Don't process AFK logic for bypass players
+            LAST_HEAD_MOVEMENT_TIME.put(playerId, System.currentTimeMillis());
         }
-        
-        // 检查是否为硬核AFK模式
-        if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
-            // 在硬核AFK模式下，交互不会导致退出AFK
-            return; // 不处理AFK逻辑
-        }
-        
-        // Interactions no longer cause AFK exit - only head movements affect AFK status
     }
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
@@ -904,6 +902,25 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 HARDCORE_AFK_PLAYERS.remove(playerId);
                 player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出手动 AFK 模式以加载地形。");
             }
+        }
+    }
+
+    // 修复：展开鞘翅时立刻解除挂机，恢复物理引擎数据包下发
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
+    public void onEntityToggleGlide(org.bukkit.event.entity.EntityToggleGlideEvent event) {
+        if (event.getEntity() instanceof Player && event.isGliding()) {
+            Player player = (Player) event.getEntity();
+            UUID uuid = player.getUniqueId();
+            
+            if (AFK_PLAYERS.contains(uuid)) {
+                playerEcoDisable(player);
+                if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
+                    HARDCORE_AFK_PLAYERS.remove(uuid);
+                    player.sendMessage(ChatColor.YELLOW + "检测到展开鞘翅，已自动退出省流模式。");
+                }
+            }
+            // 只要在飞，就重置发呆时间
+            LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
         }
     }
 
