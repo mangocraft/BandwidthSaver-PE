@@ -14,6 +14,7 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBl
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import io.netty.buffer.ByteBuf;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -435,7 +436,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     public void playerEcoEnable(Player player) {
         String message = getConfig().getString("message.playerEcoEnable", "");
         if(!message.isEmpty()){
-            player.sendMessage(message);
+            sendRichMessage(player, message);
         }
         if(getConfig().getBoolean("modifyPlayerViewDistance")) {
             player.setSendViewDistance(8);
@@ -552,7 +553,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             // 发送退出提示
             String message = getConfig().getString("message.playerEcoDisable", "");
             if(!message.isEmpty()){
-                player.sendMessage(MiniMessage.miniMessage().deserialize(message));
+                sendRichMessage(player, message);
             }
             
             // 移除 BossBar
@@ -1028,5 +1029,24 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     
 
-    
+    /**
+     * 发送支持 MiniMessage 或传统颜色代码的消息
+     */
+    private void sendRichMessage(Player player, String message) {
+        if (message == null || message.isEmpty()) return;
+        
+        if (message.contains("§") || message.contains("&")) {
+            // 如果包含传统颜色代码，使用 Legacy 序列化器处理
+            player.sendMessage(LegacyComponentSerializer.legacySection().deserialize(ChatColor.translateAlternateColorCodes('&', message)));
+        } else {
+            // 否则使用 MiniMessage 处理现代文本格式
+            try {
+                player.sendMessage(MiniMessage.miniMessage().deserialize(message));
+            } catch (Exception e) {
+                // 如果 MiniMessage 解析失败（可能包含无法识别的标签），回退到普通文本
+                player.sendMessage(message);
+            }
+        }
+    }
+
 }
