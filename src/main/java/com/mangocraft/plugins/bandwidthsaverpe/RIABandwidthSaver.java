@@ -64,7 +64,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private boolean interceptChunkPackets = false;
     private boolean compatibleWithPvdc = false;
     private List<String> enabledWorlds = new ArrayList<>();
-    private final ExecutorService EXECUTOR_SERVICE = Executors.newFixedThreadPool(2);
 
 
     // ECO模式BossBar相关数据结构
@@ -77,7 +76,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Map<UUID, io.papermc.paper.threadedregions.scheduler.ScheduledTask> PLAYER_TASKS = new ConcurrentHashMap<>(); // 存储每个玩家的专用任务
     
     // 钓鱼检测相关数据结构
-    private final Map<UUID, Boolean> IS_FISHING_CACHE = new ConcurrentHashMap<>(); // 存储玩家是否在钓鱼的状态
+    private final Map<UUID, Boolean> IS_FISHING_CACHE = new ConcurrentHashMap<>();
+
+    // 缓存需要拦截的数据包类型，提升匹配性能
+    private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> CANCELLED_PACKET_TYPES = new HashSet<>();
+    private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> TAB_PACKET_TYPES = new HashSet<>();
+    private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> CHUNK_PACKET_TYPES = new HashSet<>();
 
     private com.github.retrooper.packetevents.PacketEventsAPI packetEventsAPI;
 
@@ -87,24 +91,47 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         saveDefaultConfig();
         Bukkit.getPluginManager().registerEvents(this, this);
         
-        // Initialize PacketEvents
+        // 初始化 PacketEvents
         packetEventsAPI = PacketEvents.getAPI();
         packetEventsAPI.getSettings()
                 .checkForUpdates(false)
                 .bStats(true);
         packetEventsAPI.load();
         
-
+        // 预定义需要拦截的数据包类型集合
+        initializePacketTypeSets();
         
-        // Register packet listener
+        // 注册数据包监听器
         packetEventsAPI.getEventManager().registerListener(new BandwidthSaverListener());
         
         reloadConfig();
         
-        // 为现有在线玩家创建专用任务
+        // 为当前在线玩家启动专用检测任务
         for (Player player : Bukkit.getOnlinePlayers()) {
             schedulePlayerTask(player);
         }
+    }
+
+    /**
+     * 初始化数据包类型集合，避免在监听器中频繁创建或进行多重 if 判断
+     */
+    private void initializePacketTypeSets() {
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.ENTITY_ANIMATION);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.BLOCK_BREAK_ANIMATION);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.SOUND_EFFECT);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.ENTITY_SOUND_EFFECT);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.PARTICLE);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.EXPLOSION);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.DAMAGE_EVENT);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.MAP_DATA);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.UPDATE_LIGHT);
+        CANCELLED_PACKET_TYPES.add(PacketType.Play.Server.ENTITY_TELEPORT);
+
+        TAB_PACKET_TYPES.add(PacketType.Play.Server.PLAYER_LIST_HEADER_AND_FOOTER);
+        TAB_PACKET_TYPES.add(PacketType.Play.Server.PLAYER_INFO_UPDATE);
+
+        CHUNK_PACKET_TYPES.add(PacketType.Play.Server.CHUNK_DATA);
+        CHUNK_PACKET_TYPES.add(PacketType.Play.Server.UNLOAD_CHUNK);
     }
     
     private class BandwidthSaverListener extends PacketListenerAbstract {
@@ -114,100 +141,68 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
         @Override
         public void onPacketSend(PacketSendEvent event) {
-            // Get the player from the event
             User user = event.getUser();
             UUID userUUID = user.getUUID();
             
-            // Check if UUID is null (can happen during connection establishment)
-            if (userUUID == null) {
-                return;
-            }
+            // 基础校验：确保 UUID 有效
+            if (userUUID == null) return;
             
             Player player = Bukkit.getPlayer(userUUID);
-            
-            if (player == null) {
-                return;
-            }
+            if (player == null) return;
             
             UUID uuid = player.getUniqueId();
-            
-            // 在最开始统一读取一次大小，复用给所有统计逻辑
-            final long packetSize = getPacketSizeFromEvent(event);
-            
-            // 处理无过滤统计
+            com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon type = event.getPacketType();
+
+            // 性能优化：只有在确实需要统计时才计算数据包大小
+            long packetSize = -1;
+
+            // 处理无过滤的全量数据统计（可选功能，性能开销较大）
             if (calcAllPackets) {
-                Object packetType = event.getPacketType();
-                UNFILTERED_PKT_TYPE_STATS.computeIfAbsent(packetType, k -> new PacketInfo()).addValues(1, packetSize);
+                packetSize = getPacketSizeFromEvent(event);
+                UNFILTERED_PKT_TYPE_STATS.computeIfAbsent(type, k -> new PacketInfo()).addValues(1, packetSize);
                 UNFILTERED_PLAYER_PKT_SAVED_STATS.computeIfAbsent(uuid, k -> new PacketInfo()).addValues(1, packetSize);
             }
             
-            // Check if player is AFK
+            // 核心逻辑：如果玩家不处于 AFK 状态，则不干涉数据包
             if (!AFK_PLAYERS.contains(uuid)) {
                 return;
             }
             
-            // 检查玩家是否在钓鱼，如果是，则对某些数据包放行
+            // 检查玩家是否在钓鱼，钓鱼时需要放行关键的反馈包
             boolean isFishing = IS_FISHING_CACHE.getOrDefault(uuid, false);
-            
-            com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon type = event.getPacketType();
-
-            // 如果玩家在钓鱼，对特定数据包放行
             if (isFishing) {
-                if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SOUND_EFFECT ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE || // 放行水花粒子，让玩家能看到鱼上钩的轨迹
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY || // 放行生成的掉落物实体（钓上来的鱼）
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_METADATA) { // 放行实体的元数据（决定掉落物显示为什么物品）
-                    
-                    // 对钓鱼玩家放行声音效果、鱼漂动画、粒子、掉落物生成及显示相关数据包
-                    return; // 不取消数据包，让其通过
+                if (type == PacketType.Play.Server.SOUND_EFFECT ||
+                    type == PacketType.Play.Server.ENTITY_SOUND_EFFECT ||
+                    type == PacketType.Play.Server.ENTITY_VELOCITY ||
+                    type == PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
+                    type == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
+                    type == PacketType.Play.Server.PARTICLE || 
+                    type == PacketType.Play.Server.SPAWN_ENTITY ||
+                    type == PacketType.Play.Server.ENTITY_METADATA) {
+                    return; 
                 }
             }
 
-            // 1. 完全取消的数据包
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ANIMATION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_BREAK_ANIMATION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SOUND_EFFECT ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_SOUND_EFFECT || 
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PARTICLE ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.EXPLOSION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DAMAGE_EVENT ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MAP_DATA ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UPDATE_LIGHT ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_TELEPORT) { 
-                
-                event.setCancelled(true);
-                handleCancelledPacketWithSize(event, uuid, packetSize);
+            // 1. 完全拦截：高频视觉/听觉类数据包
+            if (CANCELLED_PACKET_TYPES.contains(type)) {
+                cancelEvent(event, uuid, packetSize);
                 return;
             }
             
-            // 动态处理 TAB 列表拦截
-            if (interceptTabList) {
-                if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_LIST_HEADER_AND_FOOTER ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.PLAYER_INFO_UPDATE) {
-                    
-                    event.setCancelled(true);
-                    handleCancelledPacketWithSize(event, uuid, packetSize);
-                    return;
-                }
+            // 2. 动态拦截：TAB 列表数据包
+            if (interceptTabList && TAB_PACKET_TYPES.contains(type)) {
+                cancelEvent(event, uuid, packetSize);
+                return;
             }
 
-            // 动态处理区块包拦截（拦截加载和卸载，让客户端地形冻结）
-            if (interceptChunkPackets) {
-                if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.CHUNK_DATA ||
-                    type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.UNLOAD_CHUNK) {
-                    
-                    event.setCancelled(true);
-                    handleCancelledPacketWithSize(event, uuid, packetSize);
-                    return;
-                }
+            // 3. 动态拦截：区块加载/卸载数据包（地形冻结）
+            if (interceptChunkPackets && CHUNK_PACKET_TYPES.contains(type)) {
+                cancelEvent(event, uuid, packetSize);
+                return;
             }
 
-            // 特殊处理：受伤动画
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_STATUS) {
+            // 4. 特殊处理：受伤动画（通过字节流检测状态位）
+            if (type == PacketType.Play.Server.ENTITY_STATUS) {
                 io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
                 if (buf != null && buf.readableBytes() >= 5) {
                     buf.markReaderIndex();
@@ -215,73 +210,57 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     byte status = buf.readByte();
                     buf.resetReaderIndex();
                     
-                    if (status == 2) {
-                        event.setCancelled(true);
-                        handleCancelledPacketWithSize(event, uuid, packetSize);
+                    if (status == 2) { // 2 代表受击动画
+                        cancelEvent(event, uuid, packetSize);
                     }
                 }
                 return;
             }
 
-            // 概率过滤：实体移动类数据包（98% 拦截）
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_ROTATION ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_VELOCITY) {
+            // 5. 概率拦截：大幅度减少实体移动同步频率 (保留 2% 确保位置不漂移过远)
+            if (type == PacketType.Play.Server.ENTITY_RELATIVE_MOVE ||
+                type == PacketType.Play.Server.ENTITY_RELATIVE_MOVE_AND_ROTATION ||
+                type == PacketType.Play.Server.ENTITY_ROTATION ||
+                type == PacketType.Play.Server.ENTITY_VELOCITY) {
                 
-                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.02) {
-                    return;
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() >= 0.02) {
+                    cancelEvent(event, uuid, packetSize);
                 }
-                event.setCancelled(true);
-                handleCancelledPacketWithSize(event, uuid, packetSize);
                 return;
             }
 
-            // 概率过滤：实体生成（50% 拦截）
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.SPAWN_ENTITY) {
-                if (java.util.concurrent.ThreadLocalRandom.current().nextInt(2) > 0) {
-                    return;
+            // 6. 概率拦截：实体生成 (拦截 50%，减少密集实体区的渲染压力)
+            if (type == PacketType.Play.Server.SPAWN_ENTITY) {
+                if (java.util.concurrent.ThreadLocalRandom.current().nextBoolean()) {
+                    cancelEvent(event, uuid, packetSize);
                 }
-                event.setCancelled(true);
-                handleCancelledPacketWithSize(event, uuid, packetSize);
                 return;
             }
 
-            // 实体销毁：100% 放行（让客户端正常清理实体）
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.DESTROY_ENTITIES) {
-                return;
-            }
-
-            // 概率过滤：实体头部旋转（80% 拦截）
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_HEAD_LOOK) {
-                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.20) {
-                    return;
+            // 7. 概率拦截：头部旋转 (拦截 80%)
+            if (type == PacketType.Play.Server.ENTITY_HEAD_LOOK) {
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() >= 0.20) {
+                    cancelEvent(event, uuid, packetSize);
                 }
-                event.setCancelled(true);
-                handleCancelledPacketWithSize(event, uuid, packetSize);
                 return;
             }
             
-            // 概率过滤：实体元数据更新（95% 拦截）
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.ENTITY_METADATA) {
-                 if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.05) {
-                    return;
+            // 8. 概率拦截：元数据更新 (拦截 95%，如附魔发光等)
+            if (type == PacketType.Play.Server.ENTITY_METADATA) {
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() >= 0.05) {
+                    cancelEvent(event, uuid, packetSize);
                 }
-                event.setCancelled(true);
-                handleCancelledPacketWithSize(event, uuid, packetSize);
                 return;
             }
+        }
 
-            // 方块动作放行
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_ACTION) {
-                return;
-            }
-
-            // 避免方块状态同步问题
-            if (type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.BLOCK_CHANGE ||
-                type == com.github.retrooper.packetevents.protocol.packettype.PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
-                return;
-            }
+        /**
+         * 辅助方法：取消事件并记录统计信息
+         */
+        private void cancelEvent(PacketSendEvent event, UUID uuid, long packetSize) {
+            event.setCancelled(true);
+            long size = packetSize >= 0 ? packetSize : getPacketSizeFromEvent(event);
+            handleCancelledPacketWithSize(event, uuid, size);
         }
 
         @Override
@@ -517,94 +496,81 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         }, null, 1L);
     }
 
+    /**
+     * 关闭节能模式并恢复玩家的正常网络通信
+     */
     public void playerEcoDisable(Player player) {
         UUID playerUuid = player.getUniqueId();
+        
+        // 立即标记为非 AFK 状态，让后续数据包通过
         AFK_PLAYERS.remove(playerUuid);
         
-        // 结算本次 AFK 时长并累加
+        // 结算本次 AFK 时长
         Long enterTime = ENTER_AFK_TIME.remove(playerUuid);
         if (enterTime != null) {
             long duration = System.currentTimeMillis() - enterTime;
             TOTAL_AFK_TIME_MS.computeIfAbsent(playerUuid, k -> new java.util.concurrent.atomic.LongAdder()).add(duration);
         }
-        
-        // 视距恢复逻辑
-        boolean modifyVD = getConfig().getBoolean("modifyPlayerViewDistance");
 
-        if (interceptChunkPackets) {
-            if (compatibleWithPvdc) {
-                // 1：兼容 PVDC 模式（延迟 2 秒等待 PVDC 结算，再拉扯视距）
-                player.getScheduler().runDelayed(this, task1 -> {
-                    if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
-                        int currentVD = player.getSendViewDistance();
-                        int targetVD = currentVD > 0 ? currentVD : Bukkit.getServer().getViewDistance();
-                        
-                        player.setSendViewDistance(targetVD + 1);
-                        
-                        player.getScheduler().runDelayed(this, task2 -> {
-                            if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid) && player.getSendViewDistance() == targetVD + 1) {
-                                player.setSendViewDistance(modifyVD ? -1 : targetVD);
-                            }
-                        }, null, 20L);
-                    }
-                }, null, 40L);
-                
-            } else {
-                // 2：不兼容 PVDC 模式（立即拉扯视距）
+        // Folia 优化：确保所有状态修改都在玩家所在的区域线程执行
+        player.getScheduler().run(this, regionTask -> {
+            if (!player.isOnline()) return;
+
+            // 视距恢复逻辑
+            boolean modifyVD = getConfig().getBoolean("modifyPlayerViewDistance");
+            if (interceptChunkPackets) {
                 int currentVD = player.getSendViewDistance();
                 int targetVD = currentVD > 0 ? currentVD : Bukkit.getServer().getViewDistance();
                 
-                player.setSendViewDistance(targetVD + 1);
-                
-                player.getScheduler().runDelayed(this, task -> {
-                    if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
-                        player.setSendViewDistance(modifyVD ? -1 : targetVD);
-                    }
-                }, null, 20L);
-            }
-        } else {
-            // 3：不拦截区块，走原始逻辑
-            if (modifyVD) {
+                if (compatibleWithPvdc) {
+                    // 兼容 PVDC：延迟拉扯视距
+                    player.getScheduler().runDelayed(this, task1 -> {
+                        if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
+                            player.setSendViewDistance(targetVD + 1);
+                            player.getScheduler().runDelayed(this, task2 -> {
+                                if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
+                                    player.setSendViewDistance(modifyVD ? -1 : targetVD);
+                                }
+                            }, null, 20L);
+                        }
+                    }, null, 40L);
+                } else {
+                    // 普通模式：立即拉扯视距
+                    player.setSendViewDistance(targetVD + 1);
+                    player.getScheduler().runDelayed(this, task -> {
+                        if (player.isOnline() && !AFK_PLAYERS.contains(playerUuid)) {
+                            player.setSendViewDistance(modifyVD ? -1 : targetVD);
+                        }
+                    }, null, 20L);
+                }
+            } else if (modifyVD) {
                 player.setSendViewDistance(-1);
             }
-        }
-        player.resetPlayerTime();
-        String message = getConfig().getString("message.playerEcoDisable", "");
-        if(!message.isEmpty()){
-            player.sendMessage(message);
-        }
-        
-        // 移除 ECO 模式 BossBar
-        UUID ecoBarUuid = ECO_BAR_UUIDS.get(playerUuid);
-        if (ecoBarUuid != null) {
-            try {
-                WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(
-                    ecoBarUuid,
-                    WrapperPlayServerBossBar.Action.REMOVE
-                );
-                
-                removeBossBarPacket.setFlags(java.util.EnumSet.noneOf(net.kyori.adventure.bossbar.BossBar.Flag.class));
-                
-                // 发送移除 BossBar 数据包给玩家
-                PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
-                
-                // 从映射中移除 UUID
-                ECO_BAR_UUIDS.remove(playerUuid);
-            } catch (Exception e) {
-                getLogger().warning("Failed to remove ECO BossBar for player " + player.getName() + ": " + e.getMessage());
+
+            player.resetPlayerTime();
+            
+            // 发送退出提示
+            String message = getConfig().getString("message.playerEcoDisable", "");
+            if(!message.isEmpty()){
+                player.sendMessage(MiniMessage.miniMessage().deserialize(message));
             }
-        }
-        
-        // 强制刷新玩家周围的实体位置，修复幽灵实体
-        player.getScheduler().run(this, task -> {
+            
+            // 移除 BossBar
+            UUID ecoBarUuid = ECO_BAR_UUIDS.remove(playerUuid);
+            if (ecoBarUuid != null) {
+                try {
+                    WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(ecoBarUuid, WrapperPlayServerBossBar.Action.REMOVE);
+                    PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
+                } catch (Exception ignored) {}
+            }
+            
+            // 刷新周围实体，修复“幽灵实体”问题
+            // 性能优化：将半径从 48 缩小到 32，减少 Folia 区域扫描负担
             try {
-                java.util.List<org.bukkit.entity.Entity> nearbyEntities = player.getNearbyEntities(48, 48, 48);
-                
+                java.util.List<org.bukkit.entity.Entity> nearbyEntities = player.getNearbyEntities(32, 32, 32);
                 for (org.bukkit.entity.Entity entity : nearbyEntities) {
                     if (entity.isValid()) {
-                        if (player.isInsideVehicle() && entity.equals(player.getVehicle())) {
-                            continue;
-                        }
+                        if (player.isInsideVehicle() && entity.equals(player.getVehicle())) continue;
                         
                         if (entity instanceof Player) {
                             Player nearbyPlayer = (Player) entity;
@@ -615,21 +581,18 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                             if (type != org.bukkit.entity.EntityType.ARMOR_STAND && 
                                 type != org.bukkit.entity.EntityType.ITEM_FRAME && 
                                 type != org.bukkit.entity.EntityType.PAINTING) {
-                                
                                 player.hideEntity(this, entity);
                                 player.showEntity(this, entity);
                             }
                         }
                     }
                 }
-                getLogger().info("Player " + player.getName() + " entity refresh completed after exiting AFK mode");
             } catch (Exception e) {
-                getLogger().warning("Failed to refresh entities: " + e.getMessage());
+                getLogger().warning("刷新实体时出错: " + e.getMessage());
             }
         }, null);
-        
-        // Log AFK exit to console
-        getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") exited AFK mode");
+
+        getLogger().info("玩家 " + player.getName() + " 退出省流模式");
     }
 
     // Player activity event handlers
@@ -927,21 +890,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         // 取消所有玩家的专用任务
+        // 取消所有玩家的检测任务
         for (io.papermc.paper.threadedregions.scheduler.ScheduledTask task : PLAYER_TASKS.values()) {
             task.cancel();
         }
         PLAYER_TASKS.clear();
-        
-        // 关闭线程池
-        EXECUTOR_SERVICE.shutdown();
-        try {
-            if (!EXECUTOR_SERVICE.awaitTermination(5, TimeUnit.SECONDS)) {
-                EXECUTOR_SERVICE.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            EXECUTOR_SERVICE.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
         
         // 终止 PacketEvents
         if (packetEventsAPI != null) {
