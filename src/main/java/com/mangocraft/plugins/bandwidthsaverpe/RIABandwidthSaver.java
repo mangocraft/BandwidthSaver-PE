@@ -346,12 +346,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 免死金牌检测：特权、睡觉、载具 (包括骑乘与被骑乘状态)、滑翔 (鞘翅)、或不在白名单世界
+                // 免死金牌检测：特权、睡觉、滑翔 (鞘翅)、或不在白名单世界
+                // 取消了载具相关的免死判定，现在坐着发呆也会进入 ECO 模式
                 String currentWorld = player.getWorld().getName().toLowerCase();
-                boolean isRiding = player.getVehicle() != null;
-                boolean hasPassenger = !player.getPassengers().isEmpty();
                 
-                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || isRiding || hasPassenger || player.isGliding() || !enabledWorlds.contains(currentWorld)) {
+                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isGliding() || !enabledWorlds.contains(currentWorld)) {
                     
                     // 若已处于 AFK 状态，立即强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
@@ -360,7 +359,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         // 同步关闭硬核 AFK 模式，防止逻辑冲突
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
-                            player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (乘车/飞行)，已自动关闭省流模式。");
+                            player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (睡觉/飞行)，已自动关闭省流模式。");
                         }
                     }
                     
