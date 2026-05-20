@@ -12,6 +12,7 @@ import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockAction;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBossBar;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityStatus;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -203,18 +204,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 return;
             }
 
-            // 4. 特殊处理：受伤动画（通过字节流检测状态位）
+            // 4. 特殊处理：受击动画 (使用 PacketEvents 封装的 Wrapper 避免直接操作 ByteBuf 的跨版本隐患)
             if (type == PacketType.Play.Server.ENTITY_STATUS) {
-                io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) event.getByteBuf();
-                if (buf != null && buf.readableBytes() >= 5) {
-                    buf.markReaderIndex();
-                    buf.skipBytes(4);
-                    byte status = buf.readByte();
-                    buf.resetReaderIndex();
-                    
-                    if (status == 2) { // 2 代表受击动画
-                        cancelEvent(event, uuid, packetSize);
-                    }
+                WrapperPlayServerEntityStatus statusPacket = new WrapperPlayServerEntityStatus(event);
+                
+                if (statusPacket.getStatus() == 2) { // 2 代表受击动画
+                    cancelEvent(event, uuid, packetSize);
                 }
                 return;
             }
@@ -908,7 +903,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
         
         // 忽略同区块内的微小移动（比如上下车）
-        if (event.getFrom().getWorld() == event.getTo().getWorld() && 
+        if (event.getFrom().getWorld().equals(event.getTo().getWorld()) && 
             event.getFrom().distanceSquared(event.getTo()) < 16) { 
             return;
         }
@@ -949,7 +944,21 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
-        // 取消所有玩家的专用任务
+        // 插件卸载前，强制清除所有在线玩家的 ECO 模式 BossBar (避免残留幽灵 BossBar)
+        for (Map.Entry<UUID, UUID> entry : ECO_BAR_UUIDS.entrySet()) {
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player != null && player.isOnline()) {
+                try {
+                    WrapperPlayServerBossBar removePacket = new WrapperPlayServerBossBar(
+                        entry.getValue(), 
+                        WrapperPlayServerBossBar.Action.REMOVE
+                    );
+                    PacketEvents.getAPI().getPlayerManager().sendPacket(player, removePacket);
+                } catch (Exception ignored) {}
+            }
+        }
+        ECO_BAR_UUIDS.clear();
+
         // 取消所有玩家的检测任务
         for (io.papermc.paper.threadedregions.scheduler.ScheduledTask task : PLAYER_TASKS.values()) {
             task.cancel();
