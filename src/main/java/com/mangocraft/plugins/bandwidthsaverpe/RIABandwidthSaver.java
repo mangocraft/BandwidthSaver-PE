@@ -12,6 +12,7 @@ import com.github.retrooper.packetevents.protocol.player.User;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockAction;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBossBar;
+import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -273,50 +274,52 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
             com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon type = event.getPacketType();
 
-            // 监听客户端发给服务端的视角移动包，解决骑乘状态下 Bukkit 不触发 PlayerMoveEvent 的痛点
+            // 监听客户端发送的视角移动包，解决骑乘状态下不触发 PlayerMoveEvent 的限制
             if (type == PacketType.Play.Client.PLAYER_ROTATION || 
                 type == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
                 
-                com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying flyingPacket = 
-                        new com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying(event);
+                WrapperPlayClientPlayerFlying flyingPacket = new WrapperPlayClientPlayerFlying(event);
                 
-                // 确认该包包含视角数据
+                // 仅在数据包包含视角旋转信息时进行处理
                 if (flyingPacket.hasRotationChanged()) {
-                    float currentYaw = flyingPacket.getLocation().getYaw();
-                    float currentPitch = flyingPacket.getLocation().getPitch();
-                    
-                    Float lastYaw = LAST_YAW.get(uuid);
-                    Float lastPitch = LAST_PITCH.get(uuid);
-                    
-                    if (lastYaw != null && lastPitch != null) {
-                        float yawDiff = Math.abs(Math.abs(currentYaw - lastYaw) - 180) - 180;
-                        float pitchDiff = Math.abs(currentPitch - lastPitch);
-                        float totalAngleDiff = Math.abs(yawDiff) + Math.abs(pitchDiff);
+                    com.github.retrooper.packetevents.protocol.world.Location loc = flyingPacket.getLocation();
+                    if (loc != null) {
+                        float currentYaw = loc.getYaw();
+                        float currentPitch = loc.getPitch();
                         
-                        // 如果视角变化超过阈值
-                        if (totalAngleDiff > HEAD_MOVEMENT_THRESHOLD) {
-                            LAST_YAW.put(uuid, currentYaw);
-                            LAST_PITCH.put(uuid, currentPitch);
-                            LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
+                        Float lastYaw = LAST_YAW.get(uuid);
+                        Float lastPitch = LAST_PITCH.get(uuid);
+                        
+                        if (lastYaw != null && lastPitch != null) {
+                            float yawDiff = Math.abs(Math.abs(currentYaw - lastYaw) - 180) - 180;
+                            float pitchDiff = Math.abs(currentPitch - lastPitch);
+                            float totalAngleDiff = Math.abs(yawDiff) + Math.abs(pitchDiff);
                             
-                            // 核心唤醒逻辑：如果在普通的 AFK 模式中，立刻强制唤醒
-                            if (AFK_PLAYERS.contains(uuid) && !HARDCORE_AFK_PLAYERS.contains(uuid)) {
-                                Player player = Bukkit.getPlayer(uuid);
-                                if (player != null && player.isOnline()) {
-                                    // Folia 要求所有实体状态修改必须在玩家所在的 Region 线程中执行
-                                    player.getScheduler().run(RIABandwidthSaver.this, task -> {
-                                        // 再次检测，防止多线程重复触发
-                                        if (AFK_PLAYERS.contains(uuid)) {
-                                            playerEcoDisable(player);
-                                        }
-                                    }, null);
+                            // 若视角变化超过设定阈值，判定玩家处于活跃状态
+                            if (totalAngleDiff > HEAD_MOVEMENT_THRESHOLD) {
+                                LAST_YAW.put(uuid, currentYaw);
+                                LAST_PITCH.put(uuid, currentPitch);
+                                LAST_HEAD_MOVEMENT_TIME.put(uuid, System.currentTimeMillis());
+                                
+                                // 唤醒逻辑：若处于常规 AFK 模式，则在玩家的区域线程中安全退出 ECO 模式
+                                if (AFK_PLAYERS.contains(uuid) && !HARDCORE_AFK_PLAYERS.contains(uuid)) {
+                                    Player player = Bukkit.getPlayer(uuid);
+                                    if (player != null && player.isOnline()) {
+                                        // Folia 平台要求玩家实体状态的修改必须在对应的区域线程内执行
+                                        player.getScheduler().run(RIABandwidthSaver.this, task -> {
+                                            // 再次校验 AFK 状态，防止并发重复触发
+                                            if (AFK_PLAYERS.contains(uuid)) {
+                                                playerEcoDisable(player);
+                                            }
+                                        }, null);
+                                    }
                                 }
                             }
+                        } else {
+                            LAST_YAW.put(uuid, currentYaw);
+                            LAST_PITCH.put(uuid, currentPitch);
+                            LAST_HEAD_MOVEMENT_TIME.putIfAbsent(uuid, System.currentTimeMillis());
                         }
-                    } else {
-                        LAST_YAW.put(uuid, currentYaw);
-                        LAST_PITCH.put(uuid, currentPitch);
-                        LAST_HEAD_MOVEMENT_TIME.putIfAbsent(uuid, System.currentTimeMillis());
                     }
                 }
             }
@@ -348,13 +351,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 
                 UUID uuid = player.getUniqueId();
                 
-                // 免死金牌检测：特权、睡觉、载具、滑翔 (鞘翅)、或不在白名单世界
+                // 免死金牌检测：特权、睡觉、载具 (包括骑乘与被骑乘状态)、滑翔 (鞘翅)、或不在白名单世界
                 String currentWorld = player.getWorld().getName().toLowerCase();
-                
-                // 增强骑乘与被骑乘检测（完美兼容 GSit 叠罗汉）
                 boolean isRiding = player.getVehicle() != null;
                 boolean hasPassenger = !player.getPassengers().isEmpty();
-
+                
                 if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isInsideVehicle() || isRiding || hasPassenger || player.isGliding() || !enabledWorlds.contains(currentWorld)) {
                     
                     // 若已处于 AFK 状态，立即强制唤醒
