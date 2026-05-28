@@ -81,6 +81,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private java.io.File superAlwaysFile;
     private org.bukkit.configuration.file.YamlConfiguration superAlwaysConfig;
     
+    // 确认机制相关数据结构：记录 <玩家UUID, 上次输入指令的时间戳>
+    private final Map<UUID, Long> PENDING_SUPER_CONFIRM = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> PENDING_ALWAYS_CONFIRM = new ConcurrentHashMap<>();
+    private static final long CONFIRMATION_TIMEOUT_MS = 180000; // 3分钟（180,000毫秒）
+    
     // Folia玩家专用任务相关数据结构
     private final Map<UUID, io.papermc.paper.threadedregions.scheduler.ScheduledTask> PLAYER_TASKS = new ConcurrentHashMap<>(); // 存储每个玩家的专用任务
     
@@ -1202,9 +1207,21 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     saveSuperAlways();
                     player.sendMessage(ChatColor.YELLOW + "已关闭自动超级省流挂机状态！当您达到设定的挂机时间时，将进入普通挂机模式。");
                 } else {
-                    SUPER_ALWAYS_PLAYERS.add(playerId);
-                    saveSuperAlways();
-                    player.sendMessage(ChatColor.GREEN + "已开启自动超级省流挂机状态！当您达到设定的挂机时间时，将直接进入超级省流模式。");
+                    Long lastConfirm = PENDING_ALWAYS_CONFIRM.get(playerId);
+                    long now = System.currentTimeMillis();
+                    if (lastConfirm != null && (now - lastConfirm <= CONFIRMATION_TIMEOUT_MS)) {
+                        PENDING_ALWAYS_CONFIRM.remove(playerId);
+                        SUPER_ALWAYS_PLAYERS.add(playerId);
+                        saveSuperAlways();
+                        player.sendMessage(ChatColor.GREEN + "已开启自动超级省流挂机状态！当您达到设定的挂机时间时，将直接进入超级省流模式。");
+                    } else {
+                        PENDING_ALWAYS_CONFIRM.put(playerId, now);
+                        player.sendMessage(ChatColor.RED + "⚠️ [进入确认] 您即将开启默认超级省流挂机偏好！");
+                        player.sendMessage(ChatColor.YELLOW + "在超级省流模式下，所有需要挂机玩家物理操作（如点击攻击、手动使用/放置方块等）的挂机机器均无法工作。");
+                        player.sendMessage(ChatColor.YELLOW + "此模式仅适用于纯被动型机器（如刷铁机、农作物机、全自动刷怪塔等）。");
+                        player.sendMessage(ChatColor.YELLOW + "且每次挂机唤醒均需重新登入服务器刷新区块。");
+                        player.sendMessage(ChatColor.AQUA + "若您确认要默认启用该模式，请在 3 分钟内再次输入指令: " + ChatColor.GREEN + "/afk super always");
+                    }
                 }
                 return true;
             }
@@ -1222,21 +1239,33 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             }
             
             if (wantsSuper) {
-                SUPER_AFK_PLAYERS.add(playerId);
-                HARDCORE_AFK_PLAYERS.add(playerId);
-                
-                if (AFK_PLAYERS.contains(playerId)) {
-                    // 若玩家已处于普通 ECO 模式，先移除旧 BossBar 并重新启用（应用超级省流 BossBar 与提示）
-                    UUID oldEcoBarUuid = ECO_BAR_UUIDS.remove(playerId);
-                    if (oldEcoBarUuid != null) {
-                        try {
-                            WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(oldEcoBarUuid, WrapperPlayServerBossBar.Action.REMOVE);
-                            PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
-                        } catch (Exception ignored) {}
+                Long lastConfirm = PENDING_SUPER_CONFIRM.get(playerId);
+                long now = System.currentTimeMillis();
+                if (lastConfirm != null && (now - lastConfirm <= CONFIRMATION_TIMEOUT_MS)) {
+                    PENDING_SUPER_CONFIRM.remove(playerId);
+                    SUPER_AFK_PLAYERS.add(playerId);
+                    HARDCORE_AFK_PLAYERS.add(playerId);
+                    
+                    if (AFK_PLAYERS.contains(playerId)) {
+                        // 若玩家已处于普通 ECO 模式，先移除旧 BossBar 并重新启用（应用超级省流 BossBar 与提示）
+                        UUID oldEcoBarUuid = ECO_BAR_UUIDS.remove(playerId);
+                        if (oldEcoBarUuid != null) {
+                            try {
+                                WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(oldEcoBarUuid, WrapperPlayServerBossBar.Action.REMOVE);
+                                PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
+                            } catch (Exception ignored) {}
+                        }
+                        playerEcoEnable(player);
+                    } else {
+                        playerEcoEnable(player);
                     }
-                    playerEcoEnable(player);
                 } else {
-                    playerEcoEnable(player);
+                    PENDING_SUPER_CONFIRM.put(playerId, now);
+                    player.sendMessage(ChatColor.RED + "⚠️ [进入确认] 您即将进入手动超级省流挂机模式！");
+                    player.sendMessage(ChatColor.YELLOW + "在此模式下，任何需要您物理操作（如点击攻击、手动使用/放置方块等）的挂机机器均无法正常工作。");
+                    player.sendMessage(ChatColor.YELLOW + "此模式仅适用于纯被动型机器（如刷铁机、农作物机、全自动刷怪塔等）。");
+                    player.sendMessage(ChatColor.YELLOW + "且退出后必须重新进入服务器才能加载刷新周围地形区块。");
+                    player.sendMessage(ChatColor.AQUA + "若您确认要开启，请在 3 分钟内再次输入指令进行二次确认: " + ChatColor.GREEN + "/afk super");
                 }
                 return true;
             }
