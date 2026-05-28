@@ -75,6 +75,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     // 硬核AFK模式相关数据结构
     private final Set<UUID> HARDCORE_AFK_PLAYERS = java.util.concurrent.ConcurrentHashMap.newKeySet(); // 存储处于硬核AFK模式的玩家
     
+    // 超级省流模式相关数据结构
+    private final Set<UUID> SUPER_AFK_PLAYERS = java.util.concurrent.ConcurrentHashMap.newKeySet(); // 存储处于超级省流模式的玩家
+    private final Set<UUID> SUPER_ALWAYS_PLAYERS = java.util.concurrent.ConcurrentHashMap.newKeySet(); // 存储默认开启超级省流模式的玩家
+    private java.io.File superAlwaysFile;
+    private org.bukkit.configuration.file.YamlConfiguration superAlwaysConfig;
+    
     // Folia玩家专用任务相关数据结构
     private final Map<UUID, io.papermc.paper.threadedregions.scheduler.ScheduledTask> PLAYER_TASKS = new ConcurrentHashMap<>(); // 存储每个玩家的专用任务
     
@@ -85,6 +91,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
     private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> CANCELLED_PACKET_TYPES = new HashSet<>();
     private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> TAB_PACKET_TYPES = new HashSet<>();
     private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> CHUNK_PACKET_TYPES = new HashSet<>();
+    private final Set<com.github.retrooper.packetevents.protocol.packettype.PacketTypeCommon> SUPER_ALLOWED_PACKET_TYPES = new HashSet<>();
 
     private com.github.retrooper.packetevents.PacketEventsAPI packetEventsAPI;
 
@@ -108,10 +115,45 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         packetEventsAPI.getEventManager().registerListener(new BandwidthSaverListener());
         
         reloadConfig();
+        loadSuperAlways();
         
         // 为当前在线玩家启动专用检测任务
         for (Player player : Bukkit.getOnlinePlayers()) {
             schedulePlayerTask(player);
+        }
+    }
+
+    private void loadSuperAlways() {
+        superAlwaysFile = new java.io.File(getDataFolder(), "super-always.yml");
+        if (!superAlwaysFile.exists()) {
+            try {
+                getDataFolder().mkdirs();
+                superAlwaysFile.createNewFile();
+            } catch (Exception e) {
+                getLogger().severe("Could not create super-always.yml: " + e.getMessage());
+            }
+        }
+        superAlwaysConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(superAlwaysFile);
+        List<String> list = superAlwaysConfig.getStringList("players");
+        SUPER_ALWAYS_PLAYERS.clear();
+        for (String s : list) {
+            try {
+                SUPER_ALWAYS_PLAYERS.add(UUID.fromString(s));
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void saveSuperAlways() {
+        if (superAlwaysConfig == null || superAlwaysFile == null) return;
+        List<String> list = new ArrayList<>();
+        for (UUID uuid : SUPER_ALWAYS_PLAYERS) {
+            list.add(uuid.toString());
+        }
+        superAlwaysConfig.set("players", list);
+        try {
+            superAlwaysConfig.save(superAlwaysFile);
+        } catch (Exception e) {
+            getLogger().severe("Could not save super-always.yml: " + e.getMessage());
         }
     }
 
@@ -135,6 +177,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
         CHUNK_PACKET_TYPES.add(PacketType.Play.Server.CHUNK_DATA);
         CHUNK_PACKET_TYPES.add(PacketType.Play.Server.UNLOAD_CHUNK);
+
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.KEEP_ALIVE);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.BOSS_BAR);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.DISCONNECT);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.PLUGIN_MESSAGE);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.CHAT_MESSAGE);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.SYSTEM_CHAT_MESSAGE);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.PING);
+        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.SERVER_DATA);
     }
     
     private class BandwidthSaverListener extends PacketListenerAbstract {
@@ -168,6 +219,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             
             // 核心逻辑：如果玩家不处于 AFK 状态，则不干涉数据包
             if (!AFK_PLAYERS.contains(uuid)) {
+                return;
+            }
+            
+            // 超级省流模式包过滤逻辑：白名单外全拦截 (O(1) HashSet 查询)
+            if (SUPER_AFK_PLAYERS.contains(uuid)) {
+                if (SUPER_ALLOWED_PACKET_TYPES.contains(type)) {
+                    return; // 放行白名单基础通信与存活包
+                }
+                cancelEvent(event, uuid, packetSize);
                 return;
             }
             
@@ -354,12 +414,17 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     
                     // 若已处于 AFK 状态，立即强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
+                        boolean wasSuper = SUPER_AFK_PLAYERS.contains(uuid);
                         playerEcoDisable(player);
                         
                         // 同步关闭硬核 AFK 模式，防止逻辑冲突
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
-                            player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (睡觉/飞行)，已自动关闭省流模式。");
+                            if (wasSuper) {
+                                player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (睡觉/飞行/世界切换)，已自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！");
+                            } else {
+                                player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (睡觉/飞行)，已自动关闭省流模式。");
+                            }
                         }
                     }
                     
@@ -388,6 +453,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         
                         // 如果头部在一段时间内没有显著移动，则进入AFK状态
                         if (timeSinceLastHeadMovement >= afkThresholdMs) {
+                            if (SUPER_ALWAYS_PLAYERS.contains(uuid)) {
+                                SUPER_AFK_PLAYERS.add(uuid);
+                            }
                             playerEcoEnable(player);
                         }
                     }
@@ -487,7 +555,12 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
 
     public void playerEcoEnable(Player player) {
-        String message = getConfig().getString("message.playerEcoEnable", "");
+        UUID playerUuid = player.getUniqueId();
+        boolean isSuper = SUPER_AFK_PLAYERS.contains(playerUuid);
+        
+        String messageKey = isSuper ? "message.playerSuperEcoEnable" : "message.playerEcoEnable";
+        String defaultMsg = isSuper ? "§c⚠️ [超级省流模式已启用] 仅限挂机，不能进行任何操作/有视角要求的行为，退出后需重连以刷新区块。" : "§a🍃 ECO 节能模式已启用，限制数据传输，可能会看着卡顿，实际正常，不会影响机器运行";
+        String message = getConfig().getString(messageKey, defaultMsg);
         if(!message.isEmpty()){
             sendRichMessage(player, message);
         }
@@ -495,17 +568,35 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             player.setSendViewDistance(8);
         }
         
+        // Ensure old bossbar is removed to prevent duplicates
+        UUID oldEcoBarUuid = ECO_BAR_UUIDS.remove(playerUuid);
+        if (oldEcoBarUuid != null) {
+            try {
+                WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(oldEcoBarUuid, WrapperPlayServerBossBar.Action.REMOVE);
+                PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
+            } catch (Exception ignored) {}
+        }
+        
         // 创建 ECO 模式 BossBar
-        UUID playerUuid = player.getUniqueId();
         UUID ecoBarUuid = UUID.randomUUID();
         ECO_BAR_UUIDS.put(playerUuid, ecoBarUuid);
 
         try {
             // 从配置文件获取 BossBar 参数
-            String titleText = getConfig().getString("bossbar.eco-enabled-title", "<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>");
-            float health = (float) getConfig().getDouble("bossbar.eco-enabled-health", 1.0);
-            String colorStr = getConfig().getString("bossbar.eco-enabled-color", "YELLOW");
-            String overlayStr = getConfig().getString("bossbar.eco-enabled-overlay", "PROGRESS");
+            String titleKey = isSuper ? "bossbar.super-eco-enabled-title" : "bossbar.eco-enabled-title";
+            String defaultTitle = isSuper ? "<red><bold>⚡ SUPER ECO 超级省流模式</bold> <gray>|</gray> <yellow>🔒 数据拦截最大化</yellow> <gray>|</gray> <white>⚠️ 退出后需重连刷新区块</white>" : "<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>";
+            String titleText = getConfig().getString(titleKey, defaultTitle);
+            
+            String healthKey = isSuper ? "bossbar.super-eco-enabled-health" : "bossbar.eco-enabled-health";
+            float health = (float) getConfig().getDouble(healthKey, 1.0);
+            
+            String colorKey = isSuper ? "bossbar.super-eco-enabled-color" : "bossbar.eco-enabled-color";
+            String defaultColor = isSuper ? "RED" : "YELLOW";
+            String colorStr = getConfig().getString(colorKey, defaultColor);
+            
+            String overlayKey = isSuper ? "bossbar.super-eco-enabled-overlay" : "bossbar.eco-enabled-overlay";
+            String defaultOverlay = isSuper ? "PROGRESS" : "PROGRESS";
+            String overlayStr = getConfig().getString(overlayKey, defaultOverlay);
             
             Component title = MiniMessage.miniMessage().deserialize(titleText);
             
@@ -521,7 +612,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             try {
                 color = net.kyori.adventure.bossbar.BossBar.Color.valueOf(colorStr.toUpperCase());
             } catch (IllegalArgumentException e) {
-                color = net.kyori.adventure.bossbar.BossBar.Color.YELLOW;
+                color = isSuper ? net.kyori.adventure.bossbar.BossBar.Color.RED : net.kyori.adventure.bossbar.BossBar.Color.YELLOW;
             }
             
             net.kyori.adventure.bossbar.BossBar.Overlay overlay;
@@ -545,7 +636,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (player.isOnline()) {
                 AFK_PLAYERS.add(player.getUniqueId());
                 ENTER_AFK_TIME.put(player.getUniqueId(), System.currentTimeMillis());
-                getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") entered AFK mode");
+                String modeName = isSuper ? "Super AFK" : "AFK";
+                getLogger().info("Player " + player.getName() + " (" + player.getUniqueId() + ") entered " + modeName + " mode");
             }
         }, null, 1L);
     }
@@ -555,6 +647,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
      */
     public void playerEcoDisable(Player player) {
         UUID playerUuid = player.getUniqueId();
+        
+        boolean wasSuper = SUPER_AFK_PLAYERS.remove(playerUuid);
         
         // 立即标记为非 AFK 状态，让后续数据包通过
         AFK_PLAYERS.remove(playerUuid);
@@ -569,6 +663,30 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         // Folia 优化：确保所有状态修改都在玩家所在的区域线程执行
         player.getScheduler().run(this, regionTask -> {
             if (!player.isOnline()) return;
+
+            if (wasSuper) {
+                // 超级省流模式退出：跳过繁重的地图/实体数据包刷新，直接提示玩家重新登录服务器
+                String messageKey = "message.playerSuperEcoDisable";
+                String defaultMsg = "§c⚠️ 您已退出超级省流模式！为了恢复周围区块和实体的正常加载，请重新进入服务器。";
+                String message = getConfig().getString(messageKey, defaultMsg);
+                if(!message.isEmpty()){
+                    sendRichMessage(player, message);
+                }
+                
+                player.resetPlayerTime();
+                
+                // 移除 BossBar
+                UUID ecoBarUuid = ECO_BAR_UUIDS.remove(playerUuid);
+                if (ecoBarUuid != null) {
+                    try {
+                        WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(ecoBarUuid, WrapperPlayServerBossBar.Action.REMOVE);
+                        PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
+                    } catch (Exception ignored) {}
+                }
+                
+                getLogger().info("玩家 " + player.getName() + " 退出超级省流模式");
+                return;
+            }
 
             // 视距恢复逻辑
             boolean modifyVD = getConfig().getBoolean("modifyPlayerViewDistance");
@@ -644,9 +762,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             } catch (Exception e) {
                 getLogger().warning("刷新实体时出错: " + e.getMessage());
             }
+            getLogger().info("玩家 " + player.getName() + " 退出省流模式");
         }, null);
-
-        getLogger().info("玩家 " + player.getName() + " 退出省流模式");
     }
 
     // Player activity event handlers
@@ -735,6 +852,49 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 playerEcoDisable(player);
             }
             LAST_HEAD_MOVEMENT_TIME.put(playerId, System.currentTimeMillis());
+        }
+    }
+
+    // 拦截超级省流模式下的所有交互和背包操作，防止客户端 UI 脱节和刷物品等 Bug
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onSuperAFKInventoryClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player) {
+            Player player = (Player) event.getWhoClicked();
+            if (SUPER_AFK_PLAYERS.contains(player.getUniqueId())) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onSuperAFKPlayerDropItem(org.bukkit.event.player.PlayerDropItemEvent event) {
+        Player player = event.getPlayer();
+        if (SUPER_AFK_PLAYERS.contains(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onSuperAFKPlayerItemHeld(org.bukkit.event.player.PlayerItemHeldEvent event) {
+        Player player = event.getPlayer();
+        if (SUPER_AFK_PLAYERS.contains(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onSuperAFKPlayerSwapHandItems(org.bukkit.event.player.PlayerSwapHandItemsEvent event) {
+        Player player = event.getPlayer();
+        if (SUPER_AFK_PLAYERS.contains(player.getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onSuperAFKPlayerInteract(org.bukkit.event.player.PlayerInteractEvent event) {
+        Player player = event.getPlayer();
+        if (SUPER_AFK_PLAYERS.contains(player.getUniqueId())) {
+            event.setCancelled(true);
         }
     }
 
@@ -844,6 +1004,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         ENTER_AFK_TIME.remove(playerId);
         IS_FISHING_CACHE.remove(playerId); // 清除钓鱼状态缓存
         HARDCORE_AFK_PLAYERS.remove(playerId); // 清除手动 AFK 状态
+        SUPER_AFK_PLAYERS.remove(playerId); // 清除超级省流状态
         
         // 新增：清理玩家总计 AFK 时间
         TOTAL_AFK_TIME_MS.remove(playerId);
@@ -896,6 +1057,26 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerDeath(org.bukkit.event.entity.PlayerDeathEvent event) {
+        Player player = event.getEntity();
+        UUID playerId = player.getUniqueId();
+        
+        if (AFK_PLAYERS.contains(playerId)) {
+            boolean wasSuper = SUPER_AFK_PLAYERS.contains(playerId);
+            playerEcoDisable(player);
+            
+            if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
+                HARDCORE_AFK_PLAYERS.remove(playerId);
+                if (wasSuper) {
+                    player.sendMessage(ChatColor.RED + "您已在挂机期间死亡，超级省流模式已自动解除！为了重新加载周围区块，请重新连接服务器。");
+                } else {
+                    player.sendMessage(ChatColor.YELLOW + "您已在挂机期间死亡，已为您自动退出手动 AFK 模式。");
+                }
+            }
+        }
+    }
+
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
@@ -910,6 +1091,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         // 如果玩家在 AFK 期间被传送（如管理员强制 tp、死亡重生等）
         // 立刻打断 AFK，否则到了新地方加载不出区块会一直往下掉
         if (AFK_PLAYERS.contains(playerId)) {
+            boolean wasSuper = SUPER_AFK_PLAYERS.contains(playerId);
             playerEcoDisable(player);
             // 更新最后头部移动时间，防止刚传过去又秒进 AFK
             LAST_HEAD_MOVEMENT_TIME.put(playerId, System.currentTimeMillis());
@@ -917,7 +1099,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             // 如果是硬核模式，为了防止卡死，也建议暂时移除
             if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
                 HARDCORE_AFK_PLAYERS.remove(playerId);
-                player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出手动 AFK 模式以加载地形。");
+                if (wasSuper) {
+                    player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！");
+                } else {
+                    player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出手动 AFK 模式以加载地形。");
+                }
             }
         }
     }
@@ -930,10 +1116,15 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             UUID uuid = player.getUniqueId();
             
             if (AFK_PLAYERS.contains(uuid)) {
+                boolean wasSuper = SUPER_AFK_PLAYERS.contains(uuid);
                 playerEcoDisable(player);
                 if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                     HARDCORE_AFK_PLAYERS.remove(uuid);
-                    player.sendMessage(ChatColor.YELLOW + "检测到展开鞘翅，已自动退出省流模式。");
+                    if (wasSuper) {
+                        player.sendMessage(ChatColor.YELLOW + "检测到展开鞘翅，已自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！");
+                    } else {
+                        player.sendMessage(ChatColor.YELLOW + "检测到展开鞘翅，已自动退出省流模式。");
+                    }
                 }
             }
             // 只要在飞，就重置发呆时间
@@ -974,18 +1165,26 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
-        if (args.length == 1) {
-            return  List.of(
-                    "reload",
-                    "unfiltered"
-            );
+        if (command.getName().equalsIgnoreCase("afk")) {
+            if (args.length == 1) {
+                return List.of("super");
+            } else if (args.length == 2 && args[0].equalsIgnoreCase("super")) {
+                return List.of("always");
+            }
+        } else if (command.getName().equalsIgnoreCase("bandwidthsaver")) {
+            if (args.length == 1) {
+                return List.of(
+                        "reload",
+                        "unfiltered"
+                );
+            }
         }
         return null;
     }
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
-        // 处理 /afk 命令（手动 AFK 模式）
+        // 处理 /afk 命令（手动 AFK 模式及超级省流模式）
         if (command.getName().equalsIgnoreCase("afk")) {
             if (!(sender instanceof Player)) {
                 sender.sendMessage(ChatColor.RED + "此命令只能由玩家执行！");
@@ -994,7 +1193,55 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             
             Player player = (Player) sender;
             UUID playerId = player.getUniqueId();
+            boolean wantsSuper = args.length > 0 && args[0].equalsIgnoreCase("super");
+            boolean wantsAlways = wantsSuper && args.length >= 2 && args[1].equalsIgnoreCase("always");
             
+            if (wantsAlways) {
+                if (SUPER_ALWAYS_PLAYERS.contains(playerId)) {
+                    SUPER_ALWAYS_PLAYERS.remove(playerId);
+                    saveSuperAlways();
+                    player.sendMessage(ChatColor.YELLOW + "已关闭自动超级省流挂机状态！当您达到设定的挂机时间时，将进入普通挂机模式。");
+                } else {
+                    SUPER_ALWAYS_PLAYERS.add(playerId);
+                    saveSuperAlways();
+                    player.sendMessage(ChatColor.GREEN + "已开启自动超级省流挂机状态！当您达到设定的挂机时间时，将直接进入超级省流模式。");
+                }
+                return true;
+            }
+            
+            if (SUPER_AFK_PLAYERS.contains(playerId)) {
+                // 处于超级省流模式时，输入任何 /afk 命令都将退出该模式
+                HARDCORE_AFK_PLAYERS.remove(playerId);
+                if (AFK_PLAYERS.contains(playerId)) {
+                    playerEcoDisable(player);
+                } else {
+                    SUPER_AFK_PLAYERS.remove(playerId);
+                }
+                player.sendMessage(ChatColor.GREEN + "您已退出超级省流模式！");
+                return true;
+            }
+            
+            if (wantsSuper) {
+                SUPER_AFK_PLAYERS.add(playerId);
+                HARDCORE_AFK_PLAYERS.add(playerId);
+                
+                if (AFK_PLAYERS.contains(playerId)) {
+                    // 若玩家已处于普通 ECO 模式，先移除旧 BossBar 并重新启用（应用超级省流 BossBar 与提示）
+                    UUID oldEcoBarUuid = ECO_BAR_UUIDS.remove(playerId);
+                    if (oldEcoBarUuid != null) {
+                        try {
+                            WrapperPlayServerBossBar removeBossBarPacket = new WrapperPlayServerBossBar(oldEcoBarUuid, WrapperPlayServerBossBar.Action.REMOVE);
+                            PacketEvents.getAPI().getPlayerManager().sendPacket(player, removeBossBarPacket);
+                        } catch (Exception ignored) {}
+                    }
+                    playerEcoEnable(player);
+                } else {
+                    playerEcoEnable(player);
+                }
+                return true;
+            }
+            
+            // 常规硬核/手动 AFK
             if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
                 HARDCORE_AFK_PLAYERS.remove(playerId);
                 if (AFK_PLAYERS.contains(playerId)) {

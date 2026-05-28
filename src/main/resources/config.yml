@@ -26,8 +26,14 @@ debug: false
 message:
   playerEcoEnable: '§a🍃 ECO 节能模式已启用，限制数据传输，可能会看着卡顿，实际正常，不会影响机器运行'
   playerEcoDisable: '§8🍃 ECO 节能模式已停用，数据传输将恢复正常'
+  playerSuperEcoEnable: '§c⚠️ [超级省流模式已启用] 仅限挂机，不能进行任何操作/有视角要求的行为，退出后需重连以刷新区块。'
+  playerSuperEcoDisable: '§c⚠️ 您已退出超级省流模式！为了恢复周围区块和实体的正常加载，请重新进入服务器。'
 bossbar:
   eco-enabled-title: "<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>"
   eco-enabled-health: 1.0
   eco-enabled-color: "YELLOW" # YELLOW, BLUE, RED, GREEN, PINK, WHITE, PURPLE, or ORANGE
   eco-enabled-overlay: "PROGRESS" # PROGRESS, NOTCHED_6, NOTCHED_10, NOTCHED_12, or NOTCHED_20
+  super-eco-enabled-title: "<red><bold>⚡ SUPER ECO 超级省流模式</bold> <gray>|</gray> <yellow>🔒 数据拦截最大化</yellow> <gray>|</gray> <white>⚠️ 退出后需重连刷新区块</white>"
+  super-eco-enabled-health: 1.0
+  super-eco-enabled-color: "RED"
+  super-eco-enabled-overlay: "PROGRESS"
