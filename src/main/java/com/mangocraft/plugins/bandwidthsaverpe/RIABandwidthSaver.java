@@ -415,7 +415,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 // 取消了载具相关的免死判定，现在坐着发呆也会进入 ECO 模式
                 String currentWorld = player.getWorld().getName().toLowerCase();
                 
-                if (player.hasPermission("bandwidthsaver.bypass") || player.isSleeping() || player.isGliding() || !enabledWorlds.contains(currentWorld)) {
+                if ((player.hasPermission("bandwidthsaver.bypass") && !HARDCORE_AFK_PLAYERS.contains(uuid)) || player.isSleeping() || player.isGliding() || !enabledWorlds.contains(currentWorld)) {
                     
                     // 若已处于 AFK 状态，立即强制唤醒
                     if (AFK_PLAYERS.contains(uuid)) {
@@ -777,8 +777,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         
-        // 检查玩家是否有绕过权限
-        if (player.hasPermission("bandwidthsaver.bypass")) {
+        // 检查玩家是否有绕过权限（且不是手动挂机状态）
+        if (player.hasPermission("bandwidthsaver.bypass") && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
             // 如果玩家有绕过权限且处于AFK状态，则退出AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
@@ -842,8 +842,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         
-        // 检查是否有绕过权限
-        if (player.hasPermission("bandwidthsaver.bypass")) {
+        // 检查是否有绕过权限（且不是手动挂机状态）
+        if (player.hasPermission("bandwidthsaver.bypass") && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
             if (AFK_PLAYERS.contains(playerId)) playerEcoDisable(player);
             return;
         }
@@ -909,8 +909,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         
-        // Check if player has bypass permission
-        if (player.hasPermission("bandwidthsaver.bypass")) {
+        // Check if player has bypass permission (and not manual AFK)
+        if (player.hasPermission("bandwidthsaver.bypass") && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
             // If player has bypass permission and is in AFK, exit AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
@@ -938,8 +938,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         UUID playerId = player.getUniqueId();
         
-        // Check if player has bypass permission
-        if (player.hasPermission("bandwidthsaver.bypass")) {
+        // Check if player has bypass permission (and not manual AFK)
+        if (player.hasPermission("bandwidthsaver.bypass") && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
             // If player has bypass permission and is in AFK, exit AFK
             if (AFK_PLAYERS.contains(playerId)) {
                 playerEcoDisable(player);
@@ -1038,8 +1038,8 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             Player player = (Player) event.getEntity();
             UUID playerId = player.getUniqueId();
             
-            // 检查玩家是否有绕过权限
-            if (player.hasPermission("bandwidthsaver.bypass")) {
+            // 检查玩家是否有绕过权限（且不是手动挂机状态）
+            if (player.hasPermission("bandwidthsaver.bypass") && !HARDCORE_AFK_PLAYERS.contains(playerId)) {
                 if (AFK_PLAYERS.contains(playerId)) {
                     playerEcoDisable(player);
                 }
