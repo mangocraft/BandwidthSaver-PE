@@ -1180,8 +1180,22 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (args.length == 1) {
                 return List.of(
                         "reload",
-                        "unfiltered"
+                        "unfiltered",
+                        "admin"
                 );
+            } else if (args.length == 2 && args[0].equalsIgnoreCase("admin")) {
+                if (sender.hasPermission("bandwidthsaver.admin")) {
+                    return List.of("add", "remove");
+                }
+            } else if (args.length == 3 && args[0].equalsIgnoreCase("admin") && 
+                       (args[1].equalsIgnoreCase("add") || args[1].equalsIgnoreCase("remove"))) {
+                if (sender.hasPermission("bandwidthsaver.admin")) {
+                    List<String> names = new ArrayList<>();
+                    for (Player p : Bukkit.getOnlinePlayers()) {
+                        names.add(p.getName());
+                    }
+                    return names;
+                }
             }
         }
         return null;
@@ -1292,6 +1306,45 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             // Check if sender has admin permission for all commands
             if (!sender.hasPermission("bandwidthsaver.admin")) {
                 sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+                return true;
+            }
+
+            if (args.length >= 3 && args[0].equalsIgnoreCase("admin")) {
+                String action = args[1].toLowerCase();
+                String targetName = args[2];
+                @SuppressWarnings("deprecation")
+                org.bukkit.OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+                if (!target.isOnline() && !target.hasPlayedBefore()) {
+                    sender.sendMessage(ChatColor.RED + "未找到玩家或该玩家从未进入过服务器：" + targetName);
+                    return true;
+                }
+                UUID targetId = target.getUniqueId();
+                String tName = target.getName() != null ? target.getName() : targetName;
+                if (action.equals("add")) {
+                    if (SUPER_ALWAYS_PLAYERS.contains(targetId)) {
+                        sender.sendMessage(ChatColor.YELLOW + "玩家 " + tName + " 已经在自动超级省流挂机列表中了！");
+                    } else {
+                        SUPER_ALWAYS_PLAYERS.add(targetId);
+                        saveSuperAlways();
+                        sender.sendMessage(ChatColor.GREEN + "已将玩家 " + tName + " 添加到自动超级省流挂机列表中！");
+                        if (target.isOnline() && target.getPlayer() != null) {
+                            target.getPlayer().sendMessage(ChatColor.GREEN + "管理员已将您添加到自动超级省流挂机列表中！");
+                        }
+                    }
+                } else if (action.equals("remove")) {
+                    if (!SUPER_ALWAYS_PLAYERS.contains(targetId)) {
+                        sender.sendMessage(ChatColor.YELLOW + "玩家 " + tName + " 不在自动超级省流挂机列表中！");
+                    } else {
+                        SUPER_ALWAYS_PLAYERS.remove(targetId);
+                        saveSuperAlways();
+                        sender.sendMessage(ChatColor.GREEN + "已将玩家 " + tName + " 从自动超级省流挂机列表中移除！");
+                        if (target.isOnline() && target.getPlayer() != null) {
+                            target.getPlayer().sendMessage(ChatColor.YELLOW + "管理员已将您从自动超级省流挂机列表中移除！");
+                        }
+                    }
+                } else {
+                    sender.sendMessage(ChatColor.RED + "未知操作，请使用 /bandwidthsaver admin add/remove <player>");
+                }
                 return true;
             }
             
