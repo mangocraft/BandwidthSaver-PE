@@ -425,9 +425,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                             HARDCORE_AFK_PLAYERS.remove(uuid);
                             if (wasSuper) {
-                                player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (睡觉/飞行/世界切换)，已自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！");
+                                sendRichMessage(player, getConfig().getString("message.superEcoDisable_special", "§e检测到特殊状态 (睡觉/飞行/世界切换)，已自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！"));
                             } else {
-                                player.sendMessage(ChatColor.YELLOW + "检测到特殊状态 (睡觉/飞行)，已自动关闭省流模式。");
+                                sendRichMessage(player, getConfig().getString("message.ecoDisable_special", "§e检测到特殊状态 (睡觉/飞行)，已自动关闭省流模式。"));
                             }
                         }
                     }
@@ -1073,9 +1073,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
                 HARDCORE_AFK_PLAYERS.remove(playerId);
                 if (wasSuper) {
-                    player.sendMessage(ChatColor.RED + "您已在挂机期间死亡，超级省流模式已自动解除！为了重新加载周围区块，请重新连接服务器。");
+                    sendRichMessage(player, getConfig().getString("message.superEcoDisable_death", "§c您已在挂机期间死亡，超级省流模式已自动解除！为了重新加载周围区块，请重新连接服务器。"));
                 } else {
-                    player.sendMessage(ChatColor.YELLOW + "您已在挂机期间死亡，已为您自动退出手动 AFK 模式。");
+                    sendRichMessage(player, getConfig().getString("message.ecoDisable_death", "§e您已在挂机期间死亡，已为您自动退出手动 AFK 模式。"));
                 }
             }
         }
@@ -1104,9 +1104,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             if (HARDCORE_AFK_PLAYERS.contains(playerId)) {
                 HARDCORE_AFK_PLAYERS.remove(playerId);
                 if (wasSuper) {
-                    player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！");
+                    sendRichMessage(player, getConfig().getString("message.superEcoDisable_teleport", "§e检测到传送，已为您自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！"));
                 } else {
-                    player.sendMessage(ChatColor.YELLOW + "检测到传送，已为您自动退出手动 AFK 模式以加载地形。");
+                    sendRichMessage(player, getConfig().getString("message.ecoDisable_teleport", "§e检测到传送，已为您自动退出手动 AFK 模式以加载地形。"));
                 }
             }
         }
@@ -1125,9 +1125,9 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 if (HARDCORE_AFK_PLAYERS.contains(uuid)) {
                     HARDCORE_AFK_PLAYERS.remove(uuid);
                     if (wasSuper) {
-                        player.sendMessage(ChatColor.YELLOW + "检测到展开鞘翅，已自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！");
+                        sendRichMessage(player, getConfig().getString("message.superEcoDisable_glide", "§e检测到展开鞘翅，已自动退出超级省流模式。为了恢复地形加载，建议重新进入服务器！"));
                     } else {
-                        player.sendMessage(ChatColor.YELLOW + "检测到展开鞘翅，已自动退出省流模式。");
+                        sendRichMessage(player, getConfig().getString("message.ecoDisable_glide", "§e检测到展开鞘翅，已自动退出省流模式。"));
                     }
                 }
             }
@@ -1205,7 +1205,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         // 处理 /afk 命令（手动 AFK 模式及超级省流模式）
         if (command.getName().equalsIgnoreCase("afk")) {
             if (!(sender instanceof Player)) {
-                sender.sendMessage(ChatColor.RED + "此命令只能由玩家执行！");
+                sender.sendMessage(getConfig().getString("message.player_only", "§c此命令只能由玩家执行！"));
                 return true;
             }
             
@@ -1218,7 +1218,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 if (SUPER_ALWAYS_PLAYERS.contains(playerId)) {
                     SUPER_ALWAYS_PLAYERS.remove(playerId);
                     saveSuperAlways();
-                    player.sendMessage(ChatColor.YELLOW + "已关闭自动超级省流挂机状态！当您达到设定的挂机时间时，将进入普通挂机模式。");
+                    sendRichMessage(player, getConfig().getString("message.superAlways_disabled", "§e已关闭自动超级省流挂机状态！当您达到设定的挂机时间时，将进入普通挂机模式。"));
                 } else {
                     Long lastConfirm = PENDING_ALWAYS_CONFIRM.get(playerId);
                     long now = System.currentTimeMillis();
@@ -1226,14 +1226,14 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                         PENDING_ALWAYS_CONFIRM.remove(playerId);
                         SUPER_ALWAYS_PLAYERS.add(playerId);
                         saveSuperAlways();
-                        player.sendMessage(ChatColor.GREEN + "已开启自动超级省流挂机状态！当您达到设定的挂机时间时，将直接进入超级省流模式。");
+                        sendRichMessage(player, getConfig().getString("message.superAlways_enabled", "§a已开启自动超级省流挂机状态！当您达到设定的挂机时间时，将直接进入超级省流模式。"));
                     } else {
                         PENDING_ALWAYS_CONFIRM.put(playerId, now);
-                        player.sendMessage(ChatColor.RED + "⚠️ [进入确认] 您即将开启默认超级省流挂机偏好！");
-                        player.sendMessage(ChatColor.YELLOW + "在超级省流模式下，所有需要挂机玩家物理操作（如点击攻击、手动使用/放置方块等）的挂机机器均无法工作。");
-                        player.sendMessage(ChatColor.YELLOW + "此模式仅适用于纯被动型机器（如刷铁机、农作物机、全自动刷怪塔等）。");
-                        player.sendMessage(ChatColor.YELLOW + "且每次挂机唤醒均需重新登入服务器刷新区块。");
-                        player.sendMessage(ChatColor.AQUA + "若您确认要默认启用该模式，请在 3 分钟内再次输入指令: " + ChatColor.GREEN + "/afk super always");
+                        sendRichMessage(player, getConfig().getString("message.superAlways_confirm1", "§c⚠️ [进入确认] 您即将开启默认超级省流挂机偏好！"));
+                        sendRichMessage(player, getConfig().getString("message.superAlways_confirm2", "§e在超级省流模式下，所有需要挂机玩家物理操作（如点击攻击、手动使用/放置方块等）的挂机机器均无法工作。"));
+                        sendRichMessage(player, getConfig().getString("message.superAlways_confirm3", "§e此模式仅适用于纯被动型机器（如刷铁机、农作物机、全自动刷怪塔等）。"));
+                        sendRichMessage(player, getConfig().getString("message.superAlways_confirm4", "§e且每次挂机唤醒均需重新登入服务器刷新区块。"));
+                        sendRichMessage(player, getConfig().getString("message.superAlways_confirm5", "§b若您确认要默认启用该模式，请在 3 分钟内再次输入指令: §a/afk super always"));
                     }
                 }
                 return true;
@@ -1247,7 +1247,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 } else {
                     SUPER_AFK_PLAYERS.remove(playerId);
                 }
-                player.sendMessage(ChatColor.GREEN + "您已退出超级省流模式！");
+                sendRichMessage(player, getConfig().getString("message.superEco_exit", "§a您已退出超级省流模式！"));
                 return true;
             }
             
@@ -1274,11 +1274,11 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     }
                 } else {
                     PENDING_SUPER_CONFIRM.put(playerId, now);
-                    player.sendMessage(ChatColor.RED + "⚠️ [进入确认] 您即将进入手动超级省流挂机模式！");
-                    player.sendMessage(ChatColor.YELLOW + "在此模式下，任何需要您物理操作（如点击攻击、手动使用/放置方块等）的挂机机器均无法正常工作。");
-                    player.sendMessage(ChatColor.YELLOW + "此模式仅适用于纯被动型机器（如刷铁机、农作物机、全自动刷怪塔等）。");
-                    player.sendMessage(ChatColor.YELLOW + "且退出后必须重新进入服务器才能加载刷新周围地形区块。");
-                    player.sendMessage(ChatColor.AQUA + "若您确认要开启，请在 3 分钟内再次输入指令进行二次确认: " + ChatColor.GREEN + "/afk super");
+                    sendRichMessage(player, getConfig().getString("message.superEco_confirm1", "§c⚠️ [进入确认] 您即将进入手动超级省流挂机模式！"));
+                    sendRichMessage(player, getConfig().getString("message.superEco_confirm2", "§e在此模式下，任何需要您物理操作（如点击攻击、手动使用/放置方块等）的挂机机器均无法正常工作。"));
+                    sendRichMessage(player, getConfig().getString("message.superAlways_confirm3", "§e此模式仅适用于纯被动型机器（如刷铁机、农作物机、全自动刷怪塔等）。"));
+                    sendRichMessage(player, getConfig().getString("message.superEco_confirm4", "§e且退出后必须重新进入服务器才能加载刷新周围地形区块。"));
+                    sendRichMessage(player, getConfig().getString("message.superEco_confirm5", "§b若您确认要开启，请在 3 分钟内再次输入指令进行二次确认: §a/afk super"));
                 }
                 return true;
             }
@@ -1289,13 +1289,13 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 if (AFK_PLAYERS.contains(playerId)) {
                     playerEcoDisable(player);
                 }
-                player.sendMessage(ChatColor.GREEN + "您已退出手动 AFK 模式！");
+                sendRichMessage(player, getConfig().getString("message.eco_exit", "§a您已退出手动 AFK 模式！"));
             } else {
                 HARDCORE_AFK_PLAYERS.add(playerId);
                 if (!AFK_PLAYERS.contains(playerId)) {
                     playerEcoEnable(player);
                 }
-                player.sendMessage(ChatColor.YELLOW + "您已进入手动 AFK 模式！再次输入/afk 退出此模式。");
+                sendRichMessage(player, getConfig().getString("message.eco_enter", "§e您已进入手动 AFK 模式！再次输入/afk 退出此模式。"));
             }
             return true;
         }
@@ -1304,7 +1304,7 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         if (command.getName().equalsIgnoreCase("bandwidthsaver")) {
             // Check if sender has admin permission for all commands
             if (!sender.hasPermission("bandwidthsaver.admin")) {
-                sender.sendMessage(ChatColor.RED + "You don't have permission to use this command!");
+                sender.sendMessage(getConfig().getString("message.no_permission", "§cYou don't have permission to use this command!"));
                 return true;
             }
 
@@ -1314,52 +1314,52 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                 @SuppressWarnings("deprecation")
                 org.bukkit.OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
                 if (!target.isOnline() && !target.hasPlayedBefore()) {
-                    sender.sendMessage(ChatColor.RED + "未找到玩家或该玩家从未进入过服务器：" + targetName);
+                    sender.sendMessage(getConfig().getString("message.admin_player_not_found", "§c未找到玩家或该玩家从未进入过服务器：").replace("%player%", targetName));
                     return true;
                 }
                 UUID targetId = target.getUniqueId();
                 String tName = target.getName() != null ? target.getName() : targetName;
                 if (action.equals("add")) {
                     if (SUPER_ALWAYS_PLAYERS.contains(targetId)) {
-                        sender.sendMessage(ChatColor.YELLOW + "玩家 " + tName + " 已经在自动超级省流挂机列表中了！");
+                        sender.sendMessage(getConfig().getString("message.admin_already_in_list", "§e玩家 %player% 已经在自动超级省流挂机列表中了！").replace("%player%", tName));
                     } else {
                         SUPER_ALWAYS_PLAYERS.add(targetId);
                         saveSuperAlways();
-                        sender.sendMessage(ChatColor.GREEN + "已将玩家 " + tName + " 添加到自动超级省流挂机列表中！");
+                        sender.sendMessage(getConfig().getString("message.admin_added_to_list", "§a已将玩家 %player% 添加到自动超级省流挂机列表中！").replace("%player%", tName));
                         if (target.isOnline() && target.getPlayer() != null) {
-                            target.getPlayer().sendMessage(ChatColor.GREEN + "管理员已将您添加到自动超级省流挂机列表中！");
+                            target.getPlayer().sendMessage(getConfig().getString("message.admin_target_added", "§a管理员已将您添加到自动超级省流挂机列表中！"));
                         }
                     }
                 } else if (action.equals("remove")) {
                     if (!SUPER_ALWAYS_PLAYERS.contains(targetId)) {
-                        sender.sendMessage(ChatColor.YELLOW + "玩家 " + tName + " 不在自动超级省流挂机列表中！");
+                        sender.sendMessage(getConfig().getString("message.admin_not_in_list", "§e玩家 %player% 不在自动超级省流挂机列表中！").replace("%player%", tName));
                     } else {
                         SUPER_ALWAYS_PLAYERS.remove(targetId);
                         saveSuperAlways();
-                        sender.sendMessage(ChatColor.GREEN + "已将玩家 " + tName + " 从自动超级省流挂机列表中移除！");
+                        sender.sendMessage(getConfig().getString("message.admin_removed_from_list", "§a已将玩家 %player% 从自动超级省流挂机列表中移除！").replace("%player%", tName));
                         if (target.isOnline() && target.getPlayer() != null) {
-                            target.getPlayer().sendMessage(ChatColor.YELLOW + "管理员已将您从自动超级省流挂机列表中移除！");
+                            target.getPlayer().sendMessage(getConfig().getString("message.admin_target_removed", "§e管理员已将您从自动超级省流挂机列表中移除！"));
                         }
                     }
                 } else {
-                    sender.sendMessage(ChatColor.RED + "未知操作，请使用 /bandwidthsaver admin add/remove <player>");
+                    sender.sendMessage(getConfig().getString("message.admin_usage", "§c未知操作，请使用 /bandwidthsaver admin add/remove <player>"));
                 }
                 return true;
             }
             
             if (args.length == 0) {
-                sender.sendMessage(ChatColor.GREEN + "🍃 ECO 节能模式 - 统计信息：");
+                sender.sendMessage(getConfig().getString("message.stats_eco_title", "§a🍃 ECO 节能模式 - 统计信息："));
                 long pktCancelled = PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktCounter().longValue()).sum();
                 long pktSizeSaved = PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktSize().longValue()).sum();
-                sender.sendMessage(ChatColor.YELLOW + "共减少发送数据包：" + ChatColor.AQUA + pktCancelled + " 个");
-                sender.sendMessage(ChatColor.YELLOW + "共减少发送数据包：" + ChatColor.AQUA + humanReadableByteCount(pktSizeSaved, false) + " （不包含视距优化的增益数据）");
+                sender.sendMessage(getConfig().getString("message.stats_eco_packets", "§e共减少发送数据包：§b%count% 个").replace("%count%", String.valueOf(pktCancelled)));
+                sender.sendMessage(getConfig().getString("message.stats_eco_bytes", "§e共减少发送数据包：§b%size% （不包含视距优化的增益数据）").replace("%size%", humanReadableByteCount(pktSizeSaved, false)));
                 Map<Object, PacketInfo> sortedPktMap = new LinkedHashMap<>();
                 Map<UUID, PacketInfo> sortedPlayerMap = new LinkedHashMap<>();
                 PKT_TYPE_STATS.entrySet().stream().sorted(Map.Entry.<Object, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPktMap.put(e.getKey(), e.getValue()));
                 PLAYER_PKT_SAVED_STATS.entrySet().stream().sorted(Map.Entry.<UUID, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPlayerMap.put(e.getKey(), e.getValue()));
-                sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型节约 TOP 15 --");
+                sender.sendMessage(getConfig().getString("message.stats_eco_top_types", "§e -- 数据包类型节约 TOP 15 --"));
                 sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
-                sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量节约 TOP 5 --");
+                sender.sendMessage(getConfig().getString("message.stats_eco_top_players", "§e -- 玩家流量节约 TOP 5 --"));
                 sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> {
                     UUID u = entry.getKey();
                     String name = Bukkit.getOfflinePlayer(u).getName();
@@ -1373,27 +1373,27 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
                     }
                     long totalAfk = (TOTAL_AFK_TIME_MS.containsKey(u) ? TOTAL_AFK_TIME_MS.get(u).sum() : 0) + currentSession;
                     
-                    sender.sendMessage(ChatColor.GRAY + name + " - " + pkts + " 个 (" + size + ")" + ChatColor.GREEN + " [挂机时长: " + formatAfkTime(totalAfk) + "]");
+                    sender.sendMessage(getConfig().getString("message.stats_eco_player_item", "§7%player% - %count% 个 (%size%)§a [挂机时长: %time%]").replace("%player%", name).replace("%count%", String.valueOf(pkts)).replace("%size%", size).replace("%time%", formatAfkTime(totalAfk)));
                 });
             }
             if (args.length == 1 && args[0].equalsIgnoreCase("unfiltered")) {
-                sender.sendMessage(ChatColor.GREEN + "🍃 UN-ECO - 数据总计 - 统计信息：");
+                sender.sendMessage(getConfig().getString("message.stats_uneco_title", "§a🍃 UN-ECO - 数据总计 - 统计信息："));
                 long pktSent = UNFILTERED_PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktCounter().longValue()).sum();
                 long pktSize = UNFILTERED_PKT_TYPE_STATS.values().stream().mapToLong(r -> r.getPktSize().longValue()).sum();
-                sender.sendMessage(ChatColor.YELLOW + "共发送数据包：" + ChatColor.AQUA + pktSent + " 个");
-                sender.sendMessage(ChatColor.YELLOW + "共发送数据包：" + ChatColor.AQUA + humanReadableByteCount(pktSize, false));
+                sender.sendMessage(getConfig().getString("message.stats_uneco_packets", "§e共发送数据包：§b%count% 个").replace("%count%", String.valueOf(pktSent)));
+                sender.sendMessage(getConfig().getString("message.stats_uneco_bytes", "§e共发送数据包：§b%size%").replace("%size%", humanReadableByteCount(pktSize, false)));
                 Map<Object, PacketInfo> sortedPktMap = new LinkedHashMap<>();
                 Map<UUID, PacketInfo> sortedPlayerMap = new LinkedHashMap<>();
                 UNFILTERED_PKT_TYPE_STATS.entrySet().stream().sorted(Map.Entry.<Object, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPktMap.put(e.getKey(), e.getValue()));
                 UNFILTERED_PLAYER_PKT_SAVED_STATS.entrySet().stream().sorted(Map.Entry.<UUID, PacketInfo>comparingByValue().reversed()).forEachOrdered(e -> sortedPlayerMap.put(e.getKey(), e.getValue()));
-                sender.sendMessage(ChatColor.YELLOW + " -- 数据包类型 TOP 15 --");
+                sender.sendMessage(getConfig().getString("message.stats_uneco_top_types", "§e -- 数据包类型 TOP 15 --"));
                 sortedPktMap.entrySet().stream().limit(15).forEach(entry -> sender.sendMessage(ChatColor.GRAY + entry.getKey().toString() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
-                sender.sendMessage(ChatColor.YELLOW + " -- 玩家流量 TOP 5 --");
+                sender.sendMessage(getConfig().getString("message.stats_uneco_top_players", "§e -- 玩家流量 TOP 5 --"));
                 sortedPlayerMap.entrySet().stream().limit(5).forEach(entry -> sender.sendMessage(ChatColor.GRAY + Bukkit.getOfflinePlayer(entry.getKey()).getName() + " - " + entry.getValue().getPktCounter().longValue() + " 个 (" + humanReadableByteCount(entry.getValue().getPktSize().longValue(), false) + ")"));
             }
             if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
                 reloadConfig();
-                sender.sendMessage(ChatColor.GREEN + "🍃 ECO - 配置文件已重载");
+                sender.sendMessage(getConfig().getString("message.reload_success", "§a🍃 ECO - 配置文件已重载"));
             }
             return true;
         }
