@@ -184,7 +184,6 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
         CHUNK_PACKET_TYPES.add(PacketType.Play.Server.UNLOAD_CHUNK);
 
         SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.KEEP_ALIVE);
-        SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.BOSS_BAR);
         SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.DISCONNECT);
         SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.PLUGIN_MESSAGE);
         SUPER_ALLOWED_PACKET_TYPES.add(PacketType.Play.Server.CHAT_MESSAGE);
