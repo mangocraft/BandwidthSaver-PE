@@ -117,6 +117,11 @@ enabled-worlds:
 # Debug mode switch. When enabled, it outputs intelligent filtering zone information in the console.
 # 调试模式开关，开启后会在控制台输出智能过滤区域信息
 debug: false
+# ==========================================
+# Language & Messages Settings / 语言与提示信息设置
+# ==========================================
+# You can translate or customize all messages sent to players below.
+# 你可以在下方翻译或自定义所有发送给玩家的提示信息。
 message:
   playerEcoEnable: '§a🍃 ECO 节能模式已启用，限制数据传输，可能会看着卡顿，实际正常，不会影响机器运行'
   playerEcoDisable: '§8🍃 ECO 节能模式已停用，数据传输将恢复正常'
@@ -169,6 +174,11 @@ message:
   stats_eco_type_item: '§7%type% - %count% 个 (%size%)'
   stats_eco_player_item: '§7%player% - %count% 个 (%size%)§a [挂机时长: %time%]'
   stats_uneco_player_item: '§7%player% - %count% 个 (%size%)'
+# ==========================================
+# BossBar Settings / Boss栏设置
+# ==========================================
+# You can customize the bossbar display here.
+# 你可以在下方自定义上方 Boss 栏的显示。
 bossbar:
   eco-enabled-title: "<green><bold>🍃 ECO 节能模式</bold> <gray>|</gray> <yellow>⬇ 已暂停高频数据传输</yellow> <gray>|</gray> <white>↔ 轻晃视角以恢复</white>"
   eco-enabled-health: 1.0
