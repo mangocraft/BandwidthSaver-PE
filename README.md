@@ -4,7 +4,7 @@
 
 **BandwidthSaver-PE** is a high-performance bandwidth throttling plugin built on the **PacketEvents** framework. Developed by the **Mangocraft Code Team**, it is a modernized fork of the legacy [RIABandwidthSaver](https://github.com/Ghost-chu/RIABandwidthSaver) by **Ghost-chu**.
 
-BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。由 **芒果方块服务器开发组** 基于 Ghost-chu 的经典旧版插件 RIABandwidthSaver 进行了现代化重构与深度优化。本插件的核心目标是在玩家处于 AFK（挂机）状态时，智能拦截并抑制不必要的网络数据包及区块发送，从而显著降低服务器的网络带宽压力与渲染开销。
+BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。由 **芒果方块服务器开发组** 基于 Ghost-chu 的旧版插件 RIABandwidthSaver 进行了现代化重构与深度优化。本插件的核心目标是在玩家处于 AFK（挂机）状态时，智能拦截并抑制不必要的网络数据包及区块发送，从而显著降低服务器的网络带宽压力。
 ![当进入ECO模式时会通过BOSSBAR提醒](https://cdn.modrinth.com/data/cached_images/27b6c74e463f97ef01749fadcc19c192c80c59b3.jpeg)
 ![减少数据包展示Limit packet display.](https://cdn.modrinth.com/data/cached_images/262cf137d40a4d17fb47bbbe0c726ffa50bf66d7.png)
 *(Note: All text within images can be modified in config.yml. / 提示：图片中展示的所有提示文本，均可在 `config.yml` 中自由修改和汉化。)*
