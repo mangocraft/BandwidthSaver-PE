@@ -4,74 +4,74 @@
 
 **BandwidthSaver-PE** is a high-performance bandwidth throttling plugin built on the **PacketEvents** framework. Developed by the **Mangocraft Code Team**, it is a modernized fork of the legacy [RIABandwidthSaver](https://github.com/Ghost-chu/RIABandwidthSaver) by **Ghost-chu**.
 
-BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。由 **芒果方块的服务器开发制作组** 基于 Ghost-chu 的旧版插件RIABandwidthSaver进行修改优化，旨在玩家处于 AFK 状态期间抑制不必要的数据包和区块发送，缓解服务器带宽压力。
+BandwidthSaver-PE 是一个基于 **PacketEvents** 的高性能节流插件。由 **芒果方块服务器开发组** 基于 Ghost-chu 的经典旧版插件 RIABandwidthSaver 进行了现代化重构与深度优化。本插件的核心目标是在玩家处于 AFK（挂机）状态时，智能拦截并抑制不必要的网络数据包及区块发送，从而显著降低服务器的网络带宽压力与渲染开销。
 ![当进入ECO模式时会通过BOSSBAR提醒](https://cdn.modrinth.com/data/cached_images/27b6c74e463f97ef01749fadcc19c192c80c59b3.jpeg)
 ![减少数据包展示Limit packet display.](https://cdn.modrinth.com/data/cached_images/262cf137d40a4d17fb47bbbe0c726ffa50bf66d7.png)
-（All text within images can be modified in config.yml. Feel free to translate or customize the content.图片内文字均可在config.yml中修改，可自行翻译或自定义内容）
+*(Note: All text within images can be modified in config.yml. / 提示：图片中展示的所有提示文本，均可在 `config.yml` 中自由修改和汉化。)*
 
 ### Improvements | 改进点
-* **Modern Framework:** Switched from ProtocolLib to **PacketEvents** for superior stability. (前置从 ProtocolLib 改为 PacketEvents，更稳定兼容)
-* **Refined Logic:** Optimized filtering algorithms for higher precision. (优化过滤算法，更准确高效)
-* **Folia Support:** Native compatibility with Folia. (增加对 Folia 服务器的支持)
-* **AFK Fishing Fix:** Added detection and handling for AFK fishing machines. (增加对自动钓鱼机的检测和处理)
-* **Manual AFK Mode:** Added `/afk` command for manual AFK mode that persists regardless of player movement. (新增/afk命令，提供手动AFK模式，不受玩家移动影响)
-* **Super Bandwidth-Saving Mode:** Added `/afk super` and `/afk super always` to completely freeze chunks and entities for maximum bandwidth savings. (新增超级省流模式和默认超级省流挂机偏好，实现最极限的宽带节省)
-* **Safety Refinements:** Blocks inventory usage, drops, and interacts in Super AFK to avoid UI desync. Auto-exits on death (`PlayerDeathEvent`) to prevent respawn locks. (全面锁定背包、丢弃与物品交互防刷防错乱；死亡立刻解除挂机，防止幽灵生存卡死)
-* **High-Concurrency Lookup:** Uses O(1) HashSet for packet whitelisting to minimize CPU cycles on crowded Folia regions. (采用 O(1) HashSet 极速匹配包白名单，降低密集型 Folia 服务器开销)
+* **Modern Framework:** Switched from ProtocolLib to **PacketEvents** for superior stability. (底层重构：采用 PacketEvents 替代老旧的 ProtocolLib，大幅提升发包拦截的稳定性与多版本兼容性。)
+* **Refined Logic:** Optimized filtering algorithms for higher precision. (智能过滤：优化了数据包过滤算法，拦截更精准，服务端性能损耗更低。)
+* **Folia Support:** Native compatibility with Folia. (Folia 原生支持：全面兼容 Folia 区域化多线程架构，无缝衔接现代高性能服务端。)
+* **AFK Fishing Fix:** Added detection and handling for AFK fishing machines. (钓鱼机兼容：新增挂机钓鱼检测，即使在挂机状态下也能保证全自动钓鱼机的正常运作。)
+* **Manual AFK Mode:** Added `/afk` command for manual AFK mode that persists regardless of player movement. (手动 AFK 模式：引入 `/afk` 命令，允许玩家强制进入挂机状态，不再受到物理移动或水流的干扰而意外退出。)
+* **Super Bandwidth-Saving Mode:** Added `/afk super` and `/afk super always` to completely freeze chunks and entities for maximum bandwidth savings. (极限超级省流：引入 `/afk super` 及 `super always` 偏好设置。在超级省流模式下，客户端世界将被彻底冻结，实现最大化带宽节省。)
+* **Safety Refinements:** Blocks inventory usage, drops, and interacts in Super AFK to avoid UI desync. Auto-exits on death (`PlayerDeathEvent`) to prevent respawn locks. (防刷安全机制：在超级省流状态下，全面锁定玩家的背包操作、物品丢弃与交互，彻底杜绝 UI 不同步导致的刷物品漏洞；若玩家意外死亡将自动强制解除挂机，防止出现幽灵存活卡死现象。)
+* **High-Concurrency Lookup:** Uses O(1) HashSet for packet whitelisting to minimize CPU cycles on crowded Folia regions. (极速发包匹配：采用 O(1) 复杂度的 HashSet 进行白名单高速查表，将高并发下的网络线程开销降至冰点。)
 
 ---
 
 > [!IMPORTANT]
-> * **Dependency:** You **must** install [PacketEvents](https://github.com/retrooper/packetevents) for this plugin to function. (必须安装 PacketEvents 插件)
-> * **Note on Stats:** Traffic statistics represent **uncompressed** data. Actual billed bandwidth may differ due to server-side compression. (统计信息为未压缩流量，实际流量因服务器压缩配置会有所出入)
+> * **Dependency:** You **must** install [PacketEvents](https://github.com/retrooper/packetevents) for this plugin to function. (必须提前安装前置插件 PacketEvents 才能正常运行。)
+> * **Note on Stats:** Traffic statistics represent **uncompressed** data. Actual billed bandwidth may differ due to server-side compression. (插件统计的数据量为未压缩的原始流量，由于各服务端配置的网络压缩阈值不同，实际节省的真实物理带宽可能存在一定偏差。)
 
 ---
 
-## Features | 功能
+## Features | 功能介绍
 
-### 1. Dynamic View Distance | 动态视距
+### 1. Dynamic View Distance | 动态视距控制
 * Lowers client-side view distance for AFK players without affecting server-side simulation distance.
-* 降低 AFK 玩家的客户端视野距离，不影响服务器模拟距离，减少区块数据传输。
+* 挂机期间主动调低该玩家的客户端视距（View Distance），从根源上减少区块数据的下发，且完全不会影响服务端的实际模拟距离（Simulation Distance）或刷怪农场。
 
-### 2. AFK Detection | AFK 检测机制
-* **Perspective-Based:** Monitors camera rotation (Default: 300s). 基于视角移动检测（默认 300 秒）。
-* **Auto-Exit:** Automatically restores traffic flow upon taking damage or using teleport commands (`/tp`, `/spawn`, `/home`, etc.). 受到攻击或使用传送命令时自动退出 AFK 模式。
-* **Automation Friendly:** Compatible with AFK pools and auto-clickers. 支持自动攻击和 AFK 池。
-* **Manual AFK Mode:** Players can use `/afk` command to enter manual AFK mode that persists regardless of player movement. Use `/afk` again or rejoin the game to exit. 手动AFK模式：玩家可使用/afk命令进入手动AFK模式，不受玩家移动影响。再次使用/afk或重新加入游戏可退出。
-* **Super Bandwidth-Saving Mode:** Toggled with `/afk super`. Restricts virtually all incoming data packets (except keepalive, bossbar, chat, disconnect, and plugin messages). Forces the client to play in a static, frozen world. Upon exiting, players must reconnect to refresh terrain chunks. 超级省流模式：使用 /afk super 开启。拦截白名单（核心心跳、聊天、通道和断连）外的几乎所有封包。退出后需重连服务器以刷新区块。
-* **Preferred Auto-Super AFK:** Toggled with `/afk super always`. Persists in `super-always.yml` so players enter Super AFK automatically instead of normal ECO mode when idle. **Note:** Auto-entered Super AFK allows players to wake up by head movement or taking damage, while manually activated `/afk super` can only be exited via command or reconnect. Under any condition, exiting Super AFK requires reconnecting to properly reload terrain chunks.  
-  默认超级省流偏好：通过 `/afk super always` 切换，记录于 `super-always.yml` 中。闲置超时后直接进入超级省流而非普通挂机。**注意**：超时自动进入的超级省流模式允许玩家通过晃动视角或受到伤害自动唤醒，而手动输入的 `/afk super` 则必须通过再次输入指令或重新登入退出。无论以何种方式退出超级省流，均需重连服务器以重载区块。
+### 2. AFK Detection & Modes | 挂机检测与模式
+* **Perspective-Based:** Monitors camera rotation (Default: 300s). (自动检测：基于玩家视角（Camera）移动判定，默认为 300 秒无动作则自动判定为 AFK。)
+* **Auto-Exit:** Automatically restores traffic flow upon taking damage or using teleport commands. (自动唤醒：当玩家受到伤害，或使用传送指令如 `/tp`, `/spawn` 跨越区块时，自动解除挂机状态以恢复地形加载。)
+* **Automation Friendly:** Compatible with AFK pools and auto-clickers. (自动化友好：完全兼容连点器自动挥剑攻击以及被动的水流 AFK 挂机池。)
+* **Manual AFK Mode:** Players can use `/afk` command to enter manual AFK mode that persists regardless of player movement. Use `/afk` again or rejoin the game to exit. (手动挂机：玩家可通过 `/afk` 主动进入挂机状态，此模式下完全免疫位移干扰。再次输入或重新进服即可退出。)
+* **Super Bandwidth-Saving Mode:** Toggled with `/afk super`. Restricts virtually all incoming data packets. Forces the client to play in a static, frozen world. (超级省流模式：通过 `/afk super` 开启。插件会拦截除了心跳包、聊天信息、跨服通道以外的所有数据！客户端将在玩家眼前彻底冻结。**注意：退出该模式后玩家必须重新连接服务器以重载周围地形区块。**)
+* **Preferred Auto-Super AFK:** Toggled with `/afk super always`. Persists in `super-always.yml` so players enter Super AFK automatically instead of normal ECO mode when idle. (默认超级省流偏好：通过 `/afk super always` 切换并记录。闲置超时后，玩家将跳过普通挂机，直接进入超级省流。**提示：由于是超时自动进入，玩家仍可通过晃动鼠标自动唤醒；无论哪种退出方式，最终都需重新连接服务器刷新区块。**)
 
-### 3. Packet Filtering | 数据包过滤详情
-* **Cancelled (100% Suppression) | 取消发送:**
+### 3. Packet Filtering Details | 数据包过滤策略
+* **Cancelled (100% Suppression) | 完全拦截:**
   * Animations, Block break, Sounds, Particles, Explosions, Time sync, Light updates, TAB list headers/footers, World events, Potion effects, Map data, etc.
-  * 动画、方块破坏、声音、粒子、爆炸、时间同步、光照更新、TAB 列表、世界事件、药水效果、地图数据等。
+  * 诸如生物动画、方块破坏进度、环境音效、粒子效果、爆炸、时间同步、光照更新、TAB 列表刷新、药水粒子等无关紧要的高频渲染包。
 * **Throttled (Reduced Rate) | 频率削减:**
-  * **2% Pass Rate:** Entity movement, Position, Velocity, Experience orbs. (实体移动/位置/速度、经验球)
-  * **5% Pass Rate:** Entity metadata. (实体元数据)
-  * **20% Pass Rate:** Head orientation. (实体头部朝向)
+  * **2% Pass Rate (放行率):** Entity movement, Position, Velocity, Experience orbs. (实体移动/位置/速度、经验球掉落)
+  * **5% Pass Rate (放行率):** Entity metadata. (实体元数据，如发光、隐身状态等)
+  * **20% Pass Rate (放行率):** Head orientation. (实体头部朝向更新)
+  * **100% Pass Rate (特别放行):** Armor Stands are 100% passed to avoid rendering bugs in AFK farms. (盔甲架实体的生成数据包 100% 放行，解决自动化农场中机器刷新盔甲架导致客户端隐身无法识别的问题。)
 * **Special Handling for AFK Fishing | 自动钓鱼机特殊处理:**
   * When a player holds a fishing rod, certain packets (sound effects, entity velocity/movement) are allowed to pass through to support fishing activities.
-  * 当玩家手持钓鱼竿时，某些数据包（声音效果、实体速度/移动）会被允许通过，以支持钓鱼活动。
+  * 当检测到挂机玩家手持钓鱼竿时，特定数据包（如鱼漂音效、鱼漂实体位移等）将被特殊放行，确保自动钓鱼机不受任何影响。
 
 ---
 
 ## Commands & Permissions | 命令与权限
 
-| Command | Description |
+| Command (命令) | Description (说明) |
 | :--- | :--- |
-| `/bandwidthsaver` | View bandwidth saving stats (查看流量节省统计) |
-| `/bandwidthsaver unfiltered` | View raw consumption (查看实际消耗统计) |
-| `/bandwidthsaver reload` | Reload configuration (重载配置) |
-| `/bandwidthsaver admin add/remove <player>` | Add or remove a player from auto Super AFK list (将玩家加入或移出自动超级省流名单) |
-| `/afk` | Toggle manual AFK mode (切换手动AFK模式) |
+| `/bandwidthsaver` | View bandwidth saving stats (查看全服流量节省统计) |
+| `/bandwidthsaver unfiltered` | View raw consumption (查看全服实际消耗统计) |
+| `/bandwidthsaver reload` | Reload configuration (重载配置文件) |
+| `/bandwidthsaver admin add/remove <player>` | Add or remove a player from auto Super AFK list (管理员特权：将某位玩家强制加入或移出自动超级省流名单) |
+| `/afk` | Toggle manual AFK mode (切换手动普通挂机模式) |
 | `/afk super` | Toggle manual Super AFK mode (切换手动超级省流模式) |
-| `/afk super always` | Toggle preferred automatic Super AFK mode (切换超时自动进入超级省流偏好) |
+| `/afk super always` | Toggle preferred automatic Super AFK mode (切换超时自动进入超级省流的个人偏好) |
 
-| Permission | Description |
+| Permission (权限节点) | Description (说明) |
 | :--- | :--- |
-| `bandwidthsaver.bypass` | Bypass AFK detection (绕过 AFK 检测) |
-| `bandwidthsaver.admin` | Access admin commands (管理员权限) |
+| `bandwidthsaver.bypass` | Bypass AFK detection (拥有此权限的玩家将永远不会被判定为挂机) |
+| `bandwidthsaver.admin` | Access admin commands (管理员权限，允许查看统计和使用管理命令) |
 
 ---
 
