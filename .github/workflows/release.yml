@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger when pushing a tag like v3.6.5
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Build with Maven
+      run: mvn clean package
+
+    - name: Find Jar
+      id: find_jar
+      run: |
+        JAR_FILE=$(find target -name "BandwidthSaver-PE-*-shaded.jar" | head -n 1)
+        if [ -z "$JAR_FILE" ]; then
+          JAR_FILE=$(find target -name "BandwidthSaver-PE-*.jar" -not -name "original-*.jar" | head -n 1)
+        fi
+        echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ${{ env.jar_file }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
