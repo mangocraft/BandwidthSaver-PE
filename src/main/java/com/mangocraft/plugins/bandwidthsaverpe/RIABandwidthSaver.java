@@ -295,8 +295,16 @@ public final class RIABandwidthSaver extends JavaPlugin implements Listener {
             // 6. 概率拦截：实体生成 (拦截 50%，减少密集实体区的渲染压力)
             if (type == PacketType.Play.Server.SPAWN_ENTITY) {
                 WrapperPlayServerSpawnEntity spawnPacket = new WrapperPlayServerSpawnEntity(event);
-                // 盔甲架 100% 放行，解决机器重置盔甲架概率不识别问题
-                if (spawnPacket.getEntityType() == EntityTypes.ARMOR_STAND) {
+                com.github.retrooper.packetevents.protocol.entity.type.EntityType entityType = spawnPacket.getEntityType();
+                // 盔甲架和矿车 100% 放行，解决机器重置概率不识别问题
+                if (entityType == EntityTypes.ARMOR_STAND ||
+                    entityType == EntityTypes.MINECART ||
+                    entityType == EntityTypes.CHEST_MINECART ||
+                    entityType == EntityTypes.COMMAND_BLOCK_MINECART ||
+                    entityType == EntityTypes.FURNACE_MINECART ||
+                    entityType == EntityTypes.HOPPER_MINECART ||
+                    entityType == EntityTypes.SPAWNER_MINECART ||
+                    entityType == EntityTypes.TNT_MINECART) {
                     return;
                 }
                 
